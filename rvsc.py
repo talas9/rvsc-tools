@@ -83,27 +83,6 @@ class Config:
         # previously missed EPROM_PermanentFlags0).
         self.bitfield_names = set(raw["record_types"]["bitfield_names"])
 
-        # VEConfigure UI tab/group/label/unit/kind for the small set of
-        # numeric settings the Simple view has confirmed labels for, sourced
-        # from ui_layout's "confirmed" fields (single, non-derived
-        # mapped_via targets only).
-        self.ui_field_by_identifier = {}
-        for tab in raw["ui_layout"]["tabs"]:
-            for group in tab["groups"]:
-                for field in group["fields"]:
-                    if field.get("certainty") != "confirmed":
-                        continue
-                    m = re.match(r"idx\d+\s+(EPROM_\w+)", field.get("mapped_via", ""))
-                    if not m:
-                        continue
-                    self.ui_field_by_identifier[m.group(1)] = {
-                        "tab": tab["label"],
-                        "group": group["label"],
-                        "label": field["label"],
-                        "unit": field.get("unit"),
-                        "kind": field["type"],
-                    }
-
         # tab id -> proper-cased display label, and display order, both
         # sourced from ui_layout so neither implementation hardcodes them.
         self.tab_label_by_id = {t["id"]: t["label"] for t in raw["ui_layout"]["tabs"]}
@@ -535,16 +514,26 @@ def mark(s, enabled):
 # ---------------------------------------------------------------------------
 # VEConfigure UI mapping (tab / group / human label) for the Simple view
 #
-# core/settings.json is now the single source of truth for the identifiers,
-# UI tab/group/label/unit/kind (ui_layout, filtered to "confirmed" entries -
-# see Config.ui_field_by_identifier), and flag bit definitions/labels/
-# inversion (flags.items - see Config.flags_by_id) that this table used to
-# hand-duplicate. What stays here is only the SELECTION and DISPLAY ORDER of
-# which confirmed fields the CLI's Simple view surfaces - the CLI has always
-# shown this particular subset (6 numeric settings + 4 flag bits); the full,
-# larger confirmed set in core/settings.json also feeds docs/index.html's
-# richer web viewer. See _build_master_mapping() below for how each entry's
-# actual label/tab/group/unit/kind/inverted values are looked up from JSON.
+# core/settings.json's ui_layout is the single source of truth for BOTH which
+# fields the Simple view shows AND the order it shows them in - there is no
+# code-resident selection or ordering constant here any more. ui_layout is
+# VEConfigure's own verbatim tab/group/field presentation layout (see its
+# "$comment" in core/settings.json); iterating it in file order (tabs already
+# in ui_layout.tab_order, each tab's groups/fields in VEConfigure's own
+# order) reproduces VEConfigure's own layout exactly.
+#
+# Each ui_layout field carries a free-text "mapped_via" provenance string
+# (e.g. "idx7 EPROM_IMainsLimit", "EBIT_60Hz (FlagsWord0 bit2)",
+# "idx45+idx46 (derived)", "no matching identifier found") plus a "certainty"
+# (confirmed / probable / unmapped). _resolve_mapped_via() below parses that
+# string into a concrete single flag-id or identifier reference - mirroring
+# docs/index.html's resolveMappedVia()/CONFIRMED_FIELDS byte-for-byte (same
+# two regexes, same fallback-to-None rule) so the CLI and the web viewer
+# agree on exactly which fields render. A field resolves only if its
+# certainty is "confirmed" or "probable" AND mapped_via names a single flag
+# or a single identifier; "unmapped" fields and multi-index/derived fields
+# (no single backing record) are left out of the Simple view entirely, same
+# as the web viewer.
 #
 # EBIT_DisableCharge is a special case: VEConfigure's own checkbox is labelled
 # "Enable charger" and is CHECKED (Enabled) when the underlying bit is CLEAR -
@@ -555,46 +544,61 @@ def mark(s, enabled):
 # guessed here.
 # ---------------------------------------------------------------------------
 
-MASTER_MAPPING_ORDER = [
-    ("identifier", "EPROM_IMainsLimit"),
-    ("identifier", "EPROM_UBat2Low"),
-    ("flag_id", "EBIT_DisableCharge"),
-    ("flag_id", "EBIT_WeakACInput"),
-    ("flag_id", "EBIT_LithiumBattery"),
-    ("identifier", "EPROM_ChargeCharacteristic"),
-    ("identifier", "EPROM_UBatAbs"),
-    ("identifier", "EPROM_UBatFloat"),
-    ("identifier", "EPROM_IBatBulk"),
-    ("flag_id", "EBIT_EnableReducedFloat"),
-]
+_MAPPED_VIA_FLAG_RE = re.compile(r"\b(p?EBIT_\w+)\b")
+_MAPPED_VIA_INDEX_RE = re.compile(r"^idx(\d+)\s+(EPROM_\w+)")
+
+
+def _resolve_mapped_via(mapped_via, flags_by_id):
+    """Parse one ui_layout field's free-text 'mapped_via' provenance string
+    into ("flag", flag_id) or ("identifier", EPROM_name), or None if it
+    names no single resolvable backing record. Mirrors docs/index.html's
+    resolveMappedVia() exactly (same two regexes, same precedence/fallback),
+    so the CLI and web viewer resolve the same fields the same way."""
+    if not mapped_via:
+        return None
+    m = _MAPPED_VIA_FLAG_RE.search(mapped_via)
+    if m and m.group(1) in flags_by_id:
+        return ("flag", m.group(1))
+    # Only a genuine SINGLE index reference right at the start ("idx7
+    # EPROM_IMainsLimit"); multi-index "derived" forms ("idx45+idx46 …",
+    # "idx47-idx48 …") deliberately do not match (no whitespace immediately
+    # after the digits), so they fall through to None/unmapped.
+    m = _MAPPED_VIA_INDEX_RE.match(mapped_via)
+    if m:
+        return ("identifier", m.group(2))
+    return None
 
 
 def _build_master_mapping(cfg):
-    """Build the Simple-view mapping table (see MASTER_MAPPING_ORDER above)
-    by looking up each entry's label/tab/group/unit/kind/inverted from
-    core/settings.json (via cfg.ui_field_by_identifier / cfg.flags_by_id),
-    instead of hand-duplicating those values as literals."""
+    """Build the Simple-view mapping table by walking core/settings.json's
+    ui_layout in its own tab/group/field order and keeping every
+    confirmed/probable field that _resolve_mapped_via() can resolve to a
+    single flag or identifier. Both the field SELECTION and the DISPLAY
+    ORDER come from the table now - nothing is hand-duplicated in code."""
     mapping = []
-    for kind, key in MASTER_MAPPING_ORDER:
-        if kind == "identifier":
-            field = cfg.ui_field_by_identifier[key]
-            mapping.append({
-                "identifier": key,
-                "tab": field["tab"],
-                "group": field["group"],
-                "label": field["label"],
-                "unit": field["unit"],
-                "kind": field["kind"],
-            })
-        else:
-            flag = cfg.flags_by_id[key]
-            mapping.append({
-                "flag_id": key,
-                "tab": cfg.tab_label_by_id[flag["ui_tab"]],
-                "group": flag["ui_group"],
-                "label": flag.get("ui_label", flag["label"]),
-                "inverted": flag["inverted"],
-            })
+    for tab in cfg.raw["ui_layout"]["tabs"]:
+        for group in tab["groups"]:
+            for field in group["fields"]:
+                if field.get("certainty") not in ("confirmed", "probable"):
+                    continue
+                resolved = _resolve_mapped_via(field.get("mapped_via", ""), cfg.flags_by_id)
+                if resolved is None:
+                    continue
+                kind, key = resolved
+                entry = {
+                    "tab": tab["label"],
+                    "group": group["label"],
+                    "label": field["label"],
+                    "certainty": field["certainty"],
+                }
+                if kind == "flag":
+                    entry["flag_id"] = key
+                    entry["inverted"] = cfg.flags_by_id[key]["inverted"]
+                else:
+                    entry["identifier"] = key
+                    entry["unit"] = field.get("unit")
+                    entry["kind"] = field["type"]
+                mapping.append(entry)
     return mapping
 
 
@@ -630,8 +634,10 @@ def is_unused_slot(s):
 
 
 def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
-    """Return ([display lines], changed) for one MASTER_MAPPING entry, or
-    None if the setting/flag it refers to isn't present in this file."""
+    """Return ([display lines], changed, probable) for one master_mapping
+    entry, or None if the setting/flag it refers to isn't present in this
+    file. A "probable" (not yet fully confirmed) entry gets a trailing "~"
+    marker; see print_simple()'s legend footer for what that means."""
     label = entry["label"]
 
     if "identifier" in entry:
@@ -661,7 +667,10 @@ def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
         default_str = "Enabled" if default_on else "Disabled"
         changed = (on != default_on)
 
+    probable = entry.get("certainty") == "probable"
     base = f"    {label:<{LABEL_WIDTH}s}{value_str:>12s}"
+    if probable:
+        base += " " + dim("~", color)
     if changed:
         lines = [
             base + "  " + mark("*", color),
@@ -669,13 +678,15 @@ def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
         ]
     else:
         lines = [base]
-    return lines, changed
+    return lines, changed, probable
 
 
 def print_simple(settings, cfg, changed_only, show_unused, color):
     """VEConfigure-style Simple view: settings grouped under their own
     VEConfigure tab and group headings, showing human labels and interpreted
-    (enum/bool/unit) values - see the MASTER_MAPPING_ORDER comment above."""
+    (enum/bool/unit) values, in VEConfigure's own layout order - see the
+    _build_master_mapping() comment above for where the selection/order come
+    from."""
     by_name = {s.name: s for s in settings}
     flags = decode_flags(settings, cfg)
     by_flag_id = {f["id"]: f for f in flags}
@@ -686,6 +697,7 @@ def print_simple(settings, cfg, changed_only, show_unused, color):
 
     mapped_names = set()
     any_output = False
+    any_probable = False
 
     for tab in cfg.tab_order:
         tab_entries = [e for e in cfg.master_mapping if e["tab"] == tab]
@@ -705,10 +717,11 @@ def print_simple(settings, cfg, changed_only, show_unused, color):
                 row = _format_mapped_row(e, by_name, by_flag_id, mapped_names, color)
                 if row is None:
                     continue
-                lines, changed = row
+                lines, changed, probable = row
                 if changed_only and not changed:
                     continue
                 group_lines.extend(lines)
+                any_probable = any_probable or probable
             if group_lines:
                 tab_groups.append((group_name, group_lines))
 
@@ -755,6 +768,15 @@ def print_simple(settings, cfg, changed_only, show_unused, color):
     if unused_count and not show_unused:
         any_output = True
         print(dim(f"{unused_count} unused slot(s) hidden (use --show-unused to show)", color))
+
+    if any_probable:
+        any_output = True
+        print(dim(
+            "~ = probable (not yet fully confirmed) VEConfigure mapping; "
+            "see mapped_via/certainty for this field in core/settings.json "
+            "ui_layout, or --advanced for its raw identifier/flag value.",
+            color,
+        ))
 
     if not any_output:
         print("(no settings differ from default)" if changed_only else "(no settings to show)")
