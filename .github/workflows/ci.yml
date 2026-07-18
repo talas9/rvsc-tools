@@ -57,3 +57,11 @@ jobs:
 
       - name: Compile check
         run: python -m compileall -q .
+
+      - name: Parser parity (Python vs JavaScript)
+        run: |
+          if [ -f tools/parity_check.py ]; then
+            python tools/parity_check.py tests/fixture.rvsc
+          else
+            echo "tools/parity_check.py not present yet - skipping parity gate"
+          fi
