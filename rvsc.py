@@ -70,9 +70,46 @@ class Config:
 
         self.epron_names = raw["naming"]["epron_names"]
 
-        self.flags = raw["flags"]["items"]  # list of {id, setting_name, bit, label}
+        self.flags = raw["flags"]["items"]  # list of {id, setting_name, bit, label, ...}
+        self.flags_by_id = {f["id"]: f for f in self.flags}
 
         self.enums = raw["enums"]["items"]  # {setting_name: {"1": "Fixed", ...}}
+
+        # Records whose raw u16 is a bitfield container, not a scalar quantity
+        # (EPROM_FlagsWord0..3, EPROM_PermanentFlags0) - see record_types in
+        # core/settings.json for the full rationale. This is the single place
+        # both rvsc.py and docs/index.html read this exclusion list from; it
+        # must never be hardcoded as a name-prefix check in code again (that
+        # previously missed EPROM_PermanentFlags0).
+        self.bitfield_names = set(raw["record_types"]["bitfield_names"])
+
+        # VEConfigure UI tab/group/label/unit/kind for the small set of
+        # numeric settings the Simple view has confirmed labels for, sourced
+        # from ui_layout's "confirmed" fields (single, non-derived
+        # mapped_via targets only).
+        self.ui_field_by_identifier = {}
+        for tab in raw["ui_layout"]["tabs"]:
+            for group in tab["groups"]:
+                for field in group["fields"]:
+                    if field.get("certainty") != "confirmed":
+                        continue
+                    m = re.match(r"idx\d+\s+(EPROM_\w+)", field.get("mapped_via", ""))
+                    if not m:
+                        continue
+                    self.ui_field_by_identifier[m.group(1)] = {
+                        "tab": tab["label"],
+                        "group": group["label"],
+                        "label": field["label"],
+                        "unit": field.get("unit"),
+                        "kind": field["type"],
+                    }
+
+        # tab id -> proper-cased display label, and display order, both
+        # sourced from ui_layout so neither implementation hardcodes them.
+        self.tab_label_by_id = {t["id"]: t["label"] for t in raw["ui_layout"]["tabs"]}
+        self.tab_order = [self.tab_label_by_id[tid] for tid in raw["ui_layout"]["tab_order"]]
+
+        self.master_mapping = _build_master_mapping(self)
 
     def setting_name(self, index):
         # index 0 is the unnamed sentinel record (verified: scale==0 in every file seen).
@@ -88,19 +125,18 @@ class Config:
         return table.get(str(raw_value))
 
     def is_flags_word(self, index):
-        """True if the setting at this index is a full FlagsWord bitfield
-        (EPROM_FlagsWord0..3), as opposed to a scalar numeric setting.
-
-        core/settings.json's naming table does not mark this explicitly (it
-        has no per-record "kind" field), so this is detected by the
-        identifier's own name prefix - the one convention that already holds
-        across every EPROM_*FlagsWord* entry in naming.epron_names. See the
+        """True if the setting at this index is a bitfield container
+        (EPROM_FlagsWord0..3, EPROM_PermanentFlags0), as opposed to a scalar
+        numeric setting. Backed by record_types.bitfield_names in
+        core/settings.json - the single declared source for this exclusion,
+        read here rather than re-derived from the identifier's own name (a
+        name-prefix check previously missed EPROM_PermanentFlags0). See the
         find_alignment()/build_settings() comments for why this exclusion
-        exists: individual bits within a FlagsWord are meaningful (see
+        exists: individual bits within a bitfield are meaningful (see
         "flags" in core/settings.json), but the word's raw value AS A WHOLE
         has no scalar meaning, so range-checking it against a declared
         [min, max] is a category error, not a real out-of-range condition."""
-        return self.setting_name(index).startswith("EPROM_FlagsWord")
+        return self.setting_name(index) in self.bitfield_names
 
 
 def load_config(path=None):
@@ -499,56 +535,68 @@ def mark(s, enabled):
 # ---------------------------------------------------------------------------
 # VEConfigure UI mapping (tab / group / human label) for the Simple view
 #
-# core/settings.json is the source of truth for EPROM_*/EBIT_* identifiers,
-# but it carries no UI layout information. The tab/group/label layout lives in
-# /Users/talas9/rvsc-ui-spec.json (observed from VEConfigure 3 itself), whose
-# own "mapping_status" section marks which of those UI fields are CONFIRMED to
-# correspond to a specific setting index/flag bit versus included for layout
-# reference only. /Users/talas9/rvsc-mapping.json (a ready-made index->label
-# table) does not exist at the time of writing, so this table below is that
-# mapping, hand-built from the CONFIRMED entries only:
-#   confirmed_fields: Absorption voltage, Float voltage, Charge current,
-#                      AC input current limit, Charge curve, DC input low shut-down
-#   confirmed_flags:  DisableCharge, EnableReducedFloat, WeakACInput, LithiumBattery
-# Every other EPROM_* setting in a file has no confirmed VEConfigure label yet
-# and is listed under "Unmapped" by print_simple() instead of being guessed.
+# core/settings.json is now the single source of truth for the identifiers,
+# UI tab/group/label/unit/kind (ui_layout, filtered to "confirmed" entries -
+# see Config.ui_field_by_identifier), and flag bit definitions/labels/
+# inversion (flags.items - see Config.flags_by_id) that this table used to
+# hand-duplicate. What stays here is only the SELECTION and DISPLAY ORDER of
+# which confirmed fields the CLI's Simple view surfaces - the CLI has always
+# shown this particular subset (6 numeric settings + 4 flag bits); the full,
+# larger confirmed set in core/settings.json also feeds docs/index.html's
+# richer web viewer. See _build_master_mapping() below for how each entry's
+# actual label/tab/group/unit/kind/inverted values are looked up from JSON.
 #
 # EBIT_DisableCharge is a special case: VEConfigure's own checkbox is labelled
 # "Enable charger" and is CHECKED (Enabled) when the underlying bit is CLEAR -
 # the flag name and the UI label are inverted from each other. Getting this
 # backwards would print a working charger as "Disabled", which is worse than
-# not showing it at all, so it is marked "inverted" explicitly below rather
-# than left to be inferred from the flag id's wording.
+# not showing it at all - "inverted" for each flag entry comes from
+# core/settings.json's flags.items (Config.flags_by_id) rather than being
+# guessed here.
 # ---------------------------------------------------------------------------
 
-TAB_ORDER = ["General", "Grid", "Inverter", "Charger", "Virtual switch", "Assistants", "Advanced"]
-
-MASTER_MAPPING = [
-    {"identifier": "EPROM_IMainsLimit", "tab": "General", "group": "Shore limit",
-     "label": "AC input current limit", "unit": "A", "kind": "number"},
-
-    {"identifier": "EPROM_UBat2Low", "tab": "Inverter", "group": "General",
-     "label": "DC input low shut-down", "unit": "V", "kind": "number"},
-
-    {"flag_id": "EBIT_DisableCharge", "tab": "Charger", "group": "Charger enable",
-     "label": "Enable charger", "inverted": True},
-    {"flag_id": "EBIT_WeakACInput", "tab": "Charger", "group": "Charger enable",
-     "label": "Weak AC input", "inverted": False},
-    {"flag_id": "EBIT_LithiumBattery", "tab": "Charger", "group": "Charger enable",
-     "label": "Lithium batteries", "inverted": False},
-
-    {"identifier": "EPROM_ChargeCharacteristic", "tab": "Charger", "group": "Charge curve",
-     "label": "Charge curve", "unit": None, "kind": "enum"},
-    {"identifier": "EPROM_UBatAbs", "tab": "Charger", "group": "Charge curve",
-     "label": "Absorption voltage", "unit": "V", "kind": "number"},
-    {"identifier": "EPROM_UBatFloat", "tab": "Charger", "group": "Charge curve",
-     "label": "Float voltage", "unit": "V", "kind": "number"},
-    {"identifier": "EPROM_IBatBulk", "tab": "Charger", "group": "Charge curve",
-     "label": "Charge current", "unit": "A", "kind": "number"},
-
-    {"flag_id": "EBIT_EnableReducedFloat", "tab": "Charger", "group": "Storage / Equalization",
-     "label": "Storage mode", "inverted": False},
+MASTER_MAPPING_ORDER = [
+    ("identifier", "EPROM_IMainsLimit"),
+    ("identifier", "EPROM_UBat2Low"),
+    ("flag_id", "EBIT_DisableCharge"),
+    ("flag_id", "EBIT_WeakACInput"),
+    ("flag_id", "EBIT_LithiumBattery"),
+    ("identifier", "EPROM_ChargeCharacteristic"),
+    ("identifier", "EPROM_UBatAbs"),
+    ("identifier", "EPROM_UBatFloat"),
+    ("identifier", "EPROM_IBatBulk"),
+    ("flag_id", "EBIT_EnableReducedFloat"),
 ]
+
+
+def _build_master_mapping(cfg):
+    """Build the Simple-view mapping table (see MASTER_MAPPING_ORDER above)
+    by looking up each entry's label/tab/group/unit/kind/inverted from
+    core/settings.json (via cfg.ui_field_by_identifier / cfg.flags_by_id),
+    instead of hand-duplicating those values as literals."""
+    mapping = []
+    for kind, key in MASTER_MAPPING_ORDER:
+        if kind == "identifier":
+            field = cfg.ui_field_by_identifier[key]
+            mapping.append({
+                "identifier": key,
+                "tab": field["tab"],
+                "group": field["group"],
+                "label": field["label"],
+                "unit": field["unit"],
+                "kind": field["kind"],
+            })
+        else:
+            flag = cfg.flags_by_id[key]
+            mapping.append({
+                "flag_id": key,
+                "tab": cfg.tab_label_by_id[flag["ui_tab"]],
+                "group": flag["ui_group"],
+                "label": flag.get("ui_label", flag["label"]),
+                "inverted": flag["inverted"],
+            })
+    return mapping
+
 
 LABEL_WIDTH = 34
 
@@ -627,21 +675,20 @@ def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
 def print_simple(settings, cfg, changed_only, show_unused, color):
     """VEConfigure-style Simple view: settings grouped under their own
     VEConfigure tab and group headings, showing human labels and interpreted
-    (enum/bool/unit) values - see the MASTER_MAPPING comment above."""
+    (enum/bool/unit) values - see the MASTER_MAPPING_ORDER comment above."""
     by_name = {s.name: s for s in settings}
     flags = decode_flags(settings, cfg)
     by_flag_id = {f["id"]: f for f in flags}
-    flag_by_id_cfg = {f["id"]: f for f in cfg.flags}
     flag_source_names = {
-        flag_by_id_cfg[e["flag_id"]]["setting_name"]
-        for e in MASTER_MAPPING if "flag_id" in e and e["flag_id"] in flag_by_id_cfg
+        cfg.flags_by_id[e["flag_id"]]["setting_name"]
+        for e in cfg.master_mapping if "flag_id" in e and e["flag_id"] in cfg.flags_by_id
     }
 
     mapped_names = set()
     any_output = False
 
-    for tab in TAB_ORDER:
-        tab_entries = [e for e in MASTER_MAPPING if e["tab"] == tab]
+    for tab in cfg.tab_order:
+        tab_entries = [e for e in cfg.master_mapping if e["tab"] == tab]
         if not tab_entries:
             continue
 
