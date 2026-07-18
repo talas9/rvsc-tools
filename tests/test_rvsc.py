@@ -247,6 +247,89 @@ class ScaleDecodingTests(unittest.TestCase):
         self.assertEqual(by_index[6].value, 9.5)    # negative scale + offset
 
 
+class DisplayConversionTests(unittest.TestCase):
+    """Regression guard for the VEConfigure ground-truth cross-check: several
+    Charger-tab timing/rate fields decode correctly (decode_value() is not
+    the bug) but were being labelled with the wrong unit - stored in minutes
+    and labelled Hr/Days without conversion, and Temperature compensation
+    stored as an unsigned V/degC magnitude and labelled mV/degC with the
+    sign silently dropped. core/settings.json's ui_layout now carries an
+    explicit display_divisor/display_decimals per affected field; these
+    tests lock in both the generic fmt_display_value() arithmetic and the
+    specific per-field conversion values so this can't silently regress."""
+
+    def test_fmt_display_value_applies_divisor_and_decimals(self):
+        entry = {"display_divisor": 60, "display_decimals": 2}
+        self.assertEqual(rvsc.fmt_display_value(60, entry), "1.00")
+
+    def test_fmt_display_value_negative_divisor_flips_sign_and_rescales(self):
+        entry = {"display_divisor": -0.001, "display_decimals": 1}
+        self.assertEqual(rvsc.fmt_display_value(0.032421875, entry), "-32.4")
+
+    def test_fmt_display_value_without_divisor_falls_back_to_fmt_value(self):
+        self.assertEqual(rvsc.fmt_display_value(60, {}), rvsc.fmt_value(60))
+        self.assertEqual(rvsc.fmt_display_value(None, {"display_divisor": 60}), "-")
+
+    def test_master_mapping_declares_expected_conversions_for_known_fields(self):
+        cfg = rvsc.load_config()
+        by_label = {}
+        for e in cfg.master_mapping:
+            if "identifier" in e:
+                by_label.setdefault(e["label"], []).append(e)
+        cases = {
+            "Repeated absorption time": ("EPROM_EqualiseQuarters", 60, 2),
+            "Repeated absorption interval": ("EPROM_FloatDays", 1440, 2),
+            "Maximum absorption time": ("EPROM_AbsorptionHours", 60, 0),
+            "Absorption time": ("EPROM_AbsorptionHours", 60, 0),
+            "Temperature compensation": ("EPROM_TempCompensationSlope", -0.001, 1),
+        }
+        for label, (identifier, divisor, decimals) in cases.items():
+            matches = [e for e in by_label.get(label, []) if e["identifier"] == identifier]
+            self.assertEqual(len(matches), 1, f"expected exactly one {label!r} entry for {identifier}")
+            entry = matches[0]
+            self.assertEqual(entry["display_divisor"], divisor, label)
+            self.assertEqual(entry["display_decimals"], decimals, label)
+
+    def test_reference_ground_truth_end_to_end(self):
+        """Reproduces the exact VEConfigure ground-truth cross-check: for
+        each field, decode_value() (the file's own scale/offset) followed by
+        fmt_display_value() (this field's declared conversion) must produce
+        VEConfigure's own displayed string, not the raw stored minutes/volts."""
+        cfg = rvsc.load_config()
+        by_label = {}
+        for e in cfg.master_mapping:
+            if "identifier" in e:
+                by_label.setdefault(e["label"], []).append(e)
+
+        # Repeated absorption time: raw=4 (quarter-hour ticks), scale=15,
+        # offset=0 -> decode_value=60 (minutes) -> VEConfigure "1.00 Hr".
+        decoded = rvsc.decode_value(4, 15, 0)
+        entry = by_label["Repeated absorption time"][0]
+        self.assertEqual(rvsc.fmt_display_value(decoded, entry), "1.00")
+
+        # Repeated absorption interval: raw=28, scale=360, offset=0 ->
+        # decode_value=10080 (minutes) -> VEConfigure "7.00 Days".
+        decoded = rvsc.decode_value(28, 360, 0)
+        entry = by_label["Repeated absorption interval"][0]
+        self.assertEqual(rvsc.fmt_display_value(decoded, entry), "7.00")
+
+        # Absorption time / Maximum absorption time share one underlying
+        # setting (idx10, EPROM_AbsorptionHours): raw=1 (lithium reference
+        # file) -> decode_value=60 (minutes) -> VEConfigure "1 Hr" (no
+        # decimals); raw=8 (lead-acid reference file) -> 480 -> "8 Hr".
+        for e in by_label["Absorption time"] + by_label["Maximum absorption time"]:
+            self.assertEqual(rvsc.fmt_display_value(rvsc.decode_value(1, 60, 0), e), "1")
+            self.assertEqual(rvsc.fmt_display_value(rvsc.decode_value(8, 60, 0), e), "8")
+
+        # Temperature compensation: raw=415, scale=-12800, offset=0 ->
+        # decode_value=0.032421875 (unsigned V/degC) -> VEConfigure
+        # "-32.4 mV/degC" (x1000 unit conversion plus the fixed sign
+        # convention VEConfigure itself applies for this field).
+        decoded = rvsc.decode_value(415, -12800, 0)
+        entry = by_label["Temperature compensation"][0]
+        self.assertEqual(rvsc.fmt_display_value(decoded, entry), "-32.4")
+
+
 class FlagBitDecodingTests(unittest.TestCase):
     def _fake_setting(self, name, raw):
         s = rvsc.Setting()

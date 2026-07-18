@@ -3753,7 +3753,7 @@ const RVSC_SETTINGS = {
     }
   },
   "ui_layout": {
-    "$comment": "Verbatim VEConfigure 3 tab/group/field presentation layout, source /Users/talas9/rvsc-ui-spec.json (observed against VEConfigure 1.33, device MultiPlus 24/1200/25-16, firmware 2667558 - see 'tested_against' at the top of this file). This is the ONE place either implementation should read tab names, group names, field labels/types/units/enum option text, and mode-dependent visibility notes from - do not duplicate this literal layout elsewhere. field_no is the flattened 1..102 numbering used to join a field to its setting-index/flag-bit mapping certainty via 'certainty'/'mapped_via' (sourced from 'ui_field_coverage' in /Users/talas9/rvsc-mapping.json). A field with certainty 'unmapped' has no confirmed backing index/bit at all - its label/type/unit/options are still accurate VEConfigure UI text, they just cannot yet be filled in from decoded .rvsc data. Fields whose 'notes' mention mode-dependent visibility (e.g. 'Shown in lead-acid mode', 'Visible when Enable battery monitor is on') are gating rules implied by the VEConfigure UI itself, carried over verbatim - neither implementation should re-derive or hardcode them separately.",
+    "$comment": "Verbatim VEConfigure 3 tab/group/field presentation layout, source /Users/talas9/rvsc-ui-spec.json (observed against VEConfigure 1.33, device MultiPlus 24/1200/25-16, firmware 2667558 - see 'tested_against' at the top of this file). This is the ONE place either implementation should read tab names, group names, field labels/types/units/enum option text, and mode-dependent visibility notes from - do not duplicate this literal layout elsewhere. field_no is the flattened 1..102 numbering used to join a field to its setting-index/flag-bit mapping certainty via 'certainty'/'mapped_via' (sourced from 'ui_field_coverage' in /Users/talas9/rvsc-mapping.json). A field with certainty 'unmapped' has no confirmed backing index/bit at all - its label/type/unit/options are still accurate VEConfigure UI text, they just cannot yet be filled in from decoded .rvsc data. Fields whose 'notes' mention mode-dependent visibility (e.g. 'Shown in lead-acid mode', 'Visible when Enable battery monitor is on') are gating rules implied by the VEConfigure UI itself, carried over verbatim - neither implementation should re-derive or hardcode them separately. DISPLAY CONVERSION (added after a VEConfigure cross-check found several time/rate fields decoding correctly but LABELLED with the wrong unit): 'unit' is always the DISPLAY unit (what VEConfigure's own UI shows). Where the info-table's own scale/offset decode a value into a DIFFERENT unit than 'unit' claims, the field also carries 'stored_unit' (documentation of what the decoded/raw-scale value 's.value'/'v.value' is actually in) plus 'display_divisor' and 'display_decimals': the number actually printed is (decoded_value / display_divisor) formatted to display_decimals places, and BOTH rvsc.py and docs/index.html must compute it this way from these two fields rather than re-deriving or hardcoding the arithmetic. A negative display_divisor both rescales AND flips sign in one step (see field 46's notes for why that's needed, not just a magnitude fix). Fields with no 'display_divisor' are unchanged from the decoded value (already in its display unit). A field may also carry 'display_note': a short caveat string that both implementations must render inline next to the value (not just as a tooltip) because the value's real-world meaning cannot be fully confirmed from decoded data alone (e.g. an enable/disable companion checkbox with no known backing bit) - see field 48.",
     "tab_order": [
       "general",
       "grid",
@@ -4250,35 +4250,51 @@ const RVSC_SETTINGS = {
                 "label": "Repeated absorption time",
                 "type": "number",
                 "unit": "Hr",
+                "stored_unit": "min",
+                "display_divisor": 60,
+                "display_decimals": 2,
                 "field_no": 42,
                 "certainty": "probable",
-                "mapped_via": "idx8 EPROM_EqualiseQuarters (numeric match, name conflict)"
+                "mapped_via": "idx8 EPROM_EqualiseQuarters (numeric match, name conflict)",
+                "unit_notes": "Decoded value (info-table scale=15 on the reference file) is in MINUTES, not hours: default raw=4 decodes to 60, and 60min = 1hr matches the documented Victron 24V default 'repeated absorption 1 hour' and VEConfigure's own displayed '1.00 Hr' for this same file. display_divisor=60 converts minutes to the displayed hours; display_decimals=2 matches VEConfigure's own 2-decimal-place display for this specific field (unlike fields 44/45, which VEConfigure displays as whole hours)."
               },
               {
                 "label": "Repeated absorption interval",
                 "type": "number",
                 "unit": "Days",
+                "stored_unit": "min",
+                "display_divisor": 1440,
+                "display_decimals": 2,
                 "field_no": 43,
                 "certainty": "probable",
-                "mapped_via": "idx9 EPROM_FloatDays (numeric match, name conflict)"
+                "mapped_via": "idx9 EPROM_FloatDays (numeric match, name conflict)",
+                "unit_notes": "Decoded value (info-table scale=360 on the reference file) is in MINUTES, not days: default raw=28 decodes to 10080, and 10080min = 7 days (7*24*60) exactly, matching the documented Victron 24V default 'repeated absorption interval 7 days' and VEConfigure's own displayed '7.00 Days' for this same file. display_divisor=1440 (24*60) converts minutes to displayed days."
               },
               {
                 "label": "Maximum absorption time",
                 "type": "number",
                 "unit": "Hr",
+                "stored_unit": "min",
+                "display_divisor": 60,
+                "display_decimals": 0,
                 "notes": "Shown in lead-acid mode.",
                 "field_no": 44,
                 "certainty": "confirmed",
-                "mapped_via": "idx10 EPROM_AbsorptionHours (differential-confirmed, lead-acid label)"
+                "mapped_via": "idx10 EPROM_AbsorptionHours (differential-confirmed, lead-acid label)",
+                "unit_notes": "Decoded value (info-table scale=60) is in MINUTES: default raw=8 decodes to 480, and 480min = 8hr matches the documented Victron 24V default 'maximum absorption 8 hours' and VEConfigure's own displayed '8 Hr' (whole hours, no decimals) for the lead-acid reference file. display_divisor=60 converts minutes to displayed hours."
               },
               {
                 "label": "Absorption time",
                 "type": "number",
                 "unit": "Hr",
+                "stored_unit": "min",
+                "display_divisor": 60,
+                "display_decimals": 0,
                 "notes": "Shown in lithium mode; replaces Maximum absorption time.",
                 "field_no": 45,
                 "certainty": "confirmed",
-                "mapped_via": "idx10 EPROM_AbsorptionHours (differential-confirmed, lithium label -- same index as field 44)"
+                "mapped_via": "idx10 EPROM_AbsorptionHours (differential-confirmed, lithium label -- same index as field 44)",
+                "unit_notes": "Same underlying minutes-valued setting as field 44 (idx10): on the lithium reference file raw=1 decodes to 60min = 1hr, matching VEConfigure's own displayed '1 Hr' (whole hours, no decimals) for this file. display_divisor=60 converts minutes to displayed hours."
               }
             ]
           },
@@ -4289,10 +4305,14 @@ const RVSC_SETTINGS = {
                 "label": "Temperature compensation",
                 "type": "number",
                 "unit": "mV/degC",
+                "stored_unit": "V/degC",
+                "display_divisor": -0.001,
+                "display_decimals": 1,
                 "notes": "Lead-acid mode only.",
                 "field_no": 46,
                 "certainty": "confirmed",
-                "mapped_via": "idx88 EPROM_TempCompensationSlope"
+                "mapped_via": "idx88 EPROM_TempCompensationSlope",
+                "unit_notes": "Decoded value (info-table scale=-12800) is an UNSIGNED magnitude in V/degC, not mV/degC: default raw=415 decodes to 0.032421875, matching the documented Victron default '0.0324 V/degC' exactly. The info-table's own min/max for this record (0 and 0.06 V/degC) prove the RAW/decoded representation can never be negative in this format -- there is no sign bit or negative-scale trick available to produce a signed value here, and the raw value was observed IDENTICAL (415) between a lead-acid file and a lithium file, ruling out a per-file sign flag too. Yet VEConfigure itself displays this same file's value as '-32.4 mV/degC' (confirmed by direct observation of the running application, and independently corroborated by CASE-STUDY.md's blind prediction/confirmation of '-32.4 mV/degC' against a second, unrelated device). Conclusion: the negative sign is a FIXED, vendor-side display convention baked into the UI -- not a property of the stored data -- because temperature compensation always SUBTRACTS from the target charge voltage as battery temperature rises (see CASE-STUDY.md's Root Cause section, where the compensation is described as 'further lowering' the effective target). No flag/bit was found anywhere in this table's 'flags' section that could plausibly carry a sign toggle for this setting (checked EBIT_* identifiers for Temp/Comp/Sign matches: none). display_divisor=-0.001 folds both the x1000 unit conversion (V -> mV) and this fixed sign convention into one number so neither implementation has to special-case the sign separately from the unit conversion. Certainty of the MAGNITUDE match is confirmed (exact numeric match against a documented default); certainty of the SIGN convention rests on the two independent VEConfigure observations above rather than on anything decodable from the file itself, so treat the sign specifically as evidence-based-but-not-file-verifiable if a future file family is found where it does not hold."
               },
               {
                 "label": "Max absorption voltage (computed)",
@@ -4310,7 +4330,8 @@ const RVSC_SETTINGS = {
                 "notes": "Lithium mode only; replaces Temperature compensation.",
                 "field_no": 48,
                 "certainty": "confirmed",
-                "mapped_via": "idx87 EPROM_TBatStopCharge"
+                "mapped_via": "idx87 EPROM_TBatStopCharge",
+                "display_note": "Enable-state not decodable: this value is shown whenever this file is in lithium mode, but field 49 ('Enable stop charger below') has no confirmed backing flag anywhere in this table, so this decoder cannot tell whether the threshold is actually active. VEConfigure was observed displaying this same stored value (-20.50 degC) while its own 'Enable stop charger below' checkbox was UNCHECKED -- i.e. the vendor tool itself shows the stored value unconditionally, independent of the checkbox. Both implementations must therefore keep showing the stored value (hiding or greying it would assert an inactive state we cannot confirm from the file, which would be a guess in the other direction), but must surface this caveat inline rather than presenting the value as unconditionally in-effect."
               },
               {
                 "label": "Enable stop charger below",
@@ -6288,6 +6309,23 @@ function formatDecoded(value, scale) {
   return value.toFixed(decimalsForScale(scale));
 }
 
+/** Format a decoded numeric value for display, applying the spec field's
+ * declared display conversion (if any) - see RVSC_SETTINGS.ui_layout's
+ * '$comment' for the display_divisor/display_decimals contract. A field with
+ * no display_divisor falls back to the raw-scale-based formatDecoded()
+ * behavior (the decoded value is already in its display unit). Mirrors
+ * rvsc.py's fmt_display_value() exactly so both implementations render the
+ * identical string for the identical field. */
+function formatFieldValue(value, field, scale) {
+  if (value == null) return '—';
+  var divisor = field && field.display_divisor;
+  if (divisor) {
+    var decimals = field && field.display_decimals != null ? field.display_decimals : 2;
+    return (value / divisor).toFixed(decimals);
+  }
+  return formatDecoded(value, scale);
+}
+
 
 /* ============================================================
    UI ADAPTER - turns parseRvsc()'s output into the shape the
@@ -7201,13 +7239,22 @@ function renderFieldRow(group, field, pf, lithiumOn) {
     }
   } else {
     var unitSuffix = field.unit ? ' ' + field.unit : '';
-    valueHtml = '<span class="vmain' + (v.atMin || v.atMax ? ' at-limit' : v.changed ? ' changed' : '') + '">' + formatDecoded(v.value, v.scale) + unitSuffix + '</span>';
+    valueHtml = '<span class="vmain' + (v.atMin || v.atMax ? ' at-limit' : v.changed ? ' changed' : '') + '">' + formatFieldValue(v.value, field, v.scale) + unitSuffix + '</span>';
     if (!advanced && v.changed) {
-      valueHtml += '<span class="vdefault"><span class="changed-flag">&#9679;</span> changed &middot; default: ' + formatDecoded(v.def, v.scale) + unitSuffix + '</span>';
+      valueHtml += '<span class="vdefault"><span class="changed-flag">&#9679;</span> changed &middot; default: ' + formatFieldValue(v.def, field, v.scale) + unitSuffix + '</span>';
     }
     if (v.atMin || v.atMax) {
       valueHtml += '<span class="warn-chip"><svg><use href="#icon-warn"/></svg>at ' + (v.atMin ? 'minimum' : 'maximum') + ' of allowed range</span>';
     }
+  }
+
+  // A field's 'display_note' documents a caveat this decoder cannot resolve
+  // from the file alone (e.g. an enable/disable companion checkbox with no
+  // known backing flag) - shown inline, not just in a tooltip, so it can't
+  // be missed the way a hover-only note could be.
+  if (field.display_note) {
+    badgeParts.push('<span class="badge low" title="' + esc(field.display_note) + '">enable-state unknown</span>');
+    badge = badgeParts.join(' ');
   }
 
   return '<div class="field-row">' +
@@ -7534,8 +7581,8 @@ function renderSimpleDiff(pfA, pfB) {
     } else {
       var field2 = findSpecField(cf.tabId, cf.groupLabel, cf.fieldLabel);
       var unit = field2 && field2.unit ? ' ' + field2.unit : '';
-      textA = formatDecoded(vA.value, vA.scale) + unit;
-      textB = formatDecoded(vB.value, vB.scale) + unit;
+      textA = formatFieldValue(vA.value, field2, vA.scale) + unit;
+      textB = formatFieldValue(vB.value, field2, vB.scale) + unit;
       same = Math.abs(vA.value - vB.value) < 1e-9;
     }
     if (!same) byTab[cf.tabId].push({ label: cf.fieldLabel, group: cf.groupLabel, textA: textA, textB: textB });

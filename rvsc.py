@@ -454,6 +454,23 @@ def fmt_value(v):
     return str(v)
 
 
+def fmt_display_value(v, entry):
+    """Format a decoded numeric value for the Simple view, applying this
+    field's declared display conversion (if any) from core/settings.json's
+    ui_layout - see that file's ui_layout '$comment' for the display_divisor/
+    display_decimals contract. A field with no display_divisor is unchanged
+    from fmt_value()'s behavior (the decoded value is already in its display
+    unit). Mirrors docs/index.html's formatFieldValue() exactly so both
+    implementations render the identical string for the identical field."""
+    if v is None:
+        return "-"
+    divisor = entry.get("display_divisor")
+    if divisor:
+        decimals = entry.get("display_decimals", 2)
+        return f"{v / divisor:.{decimals}f}"
+    return fmt_value(v)
+
+
 def print_header(meta):
     print(f"file: {meta['path']}")
     print(f"size: {meta['size']} bytes")
@@ -598,6 +615,9 @@ def _build_master_mapping(cfg):
                     entry["identifier"] = key
                     entry["unit"] = field.get("unit")
                     entry["kind"] = field["type"]
+                    entry["display_divisor"] = field.get("display_divisor")
+                    entry["display_decimals"] = field.get("display_decimals")
+                    entry["display_note"] = field.get("display_note")
                 mapping.append(entry)
     return mapping
 
@@ -634,11 +654,14 @@ def is_unused_slot(s):
 
 
 def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
-    """Return ([display lines], changed, probable) for one master_mapping
-    entry, or None if the setting/flag it refers to isn't present in this
-    file. A "probable" (not yet fully confirmed) entry gets a trailing "~"
-    marker; see print_simple()'s legend footer for what that means."""
+    """Return ([display lines], changed, probable, has_note) for one
+    master_mapping entry, or None if the setting/flag it refers to isn't
+    present in this file. A "probable" (not yet fully confirmed) entry gets
+    a trailing "~" marker; a field carrying a 'display_note' caveat (e.g. an
+    enable/disable state this decoder cannot confirm) gets a trailing "!"
+    marker; see print_simple()'s legend footer for what both mean."""
     label = entry["label"]
+    note = None
 
     if "identifier" in entry:
         s = by_name.get(entry["identifier"])
@@ -646,13 +669,14 @@ def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
             return None
         mapped_names.add(entry["identifier"])
         changed = (s.raw != s.default_raw)
+        note = entry.get("display_note")
         if entry["kind"] == "enum":
             value_str = s.enum_label or fmt_value(s.value)
             default_str = s.default_enum_label or fmt_value(s.default_value)
         else:
             unit_suffix = f" {entry['unit']}" if entry.get("unit") else ""
-            value_str = fmt_value(s.value) + unit_suffix
-            default_str = fmt_value(s.default_value) + unit_suffix
+            value_str = fmt_display_value(s.value, entry) + unit_suffix
+            default_str = fmt_display_value(s.default_value, entry) + unit_suffix
     else:
         f = by_flag_id.get(entry["flag_id"])
         if f is None:
@@ -668,9 +692,12 @@ def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
         changed = (on != default_on)
 
     probable = entry.get("certainty") == "probable"
+    has_note = bool(note)
     base = f"    {label:<{LABEL_WIDTH}s}{value_str:>12s}"
     if probable:
         base += " " + dim("~", color)
+    if has_note:
+        base += " " + dim("!", color)
     if changed:
         lines = [
             base + "  " + mark("*", color),
@@ -678,7 +705,7 @@ def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
         ]
     else:
         lines = [base]
-    return lines, changed, probable
+    return lines, changed, probable, has_note
 
 
 def print_simple(settings, cfg, changed_only, show_unused, color):
@@ -698,6 +725,7 @@ def print_simple(settings, cfg, changed_only, show_unused, color):
     mapped_names = set()
     any_output = False
     any_probable = False
+    any_note = False
 
     for tab in cfg.tab_order:
         tab_entries = [e for e in cfg.master_mapping if e["tab"] == tab]
@@ -717,11 +745,12 @@ def print_simple(settings, cfg, changed_only, show_unused, color):
                 row = _format_mapped_row(e, by_name, by_flag_id, mapped_names, color)
                 if row is None:
                     continue
-                lines, changed, probable = row
+                lines, changed, probable, has_note = row
                 if changed_only and not changed:
                     continue
                 group_lines.extend(lines)
                 any_probable = any_probable or probable
+                any_note = any_note or has_note
             if group_lines:
                 tab_groups.append((group_name, group_lines))
 
@@ -775,6 +804,16 @@ def print_simple(settings, cfg, changed_only, show_unused, color):
             "~ = probable (not yet fully confirmed) VEConfigure mapping; "
             "see mapped_via/certainty for this field in core/settings.json "
             "ui_layout, or --advanced for its raw identifier/flag value.",
+            color,
+        ))
+
+    if any_note:
+        any_output = True
+        print(dim(
+            "! = shown unconditionally though its real-world enable/disable "
+            "state cannot be confirmed from this file (VEConfigure's own "
+            "companion checkbox has no known backing flag here); see "
+            "'display_note' for this field in core/settings.json ui_layout.",
             color,
         ))
 
