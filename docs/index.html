@@ -1,0 +1,1342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RVSC Viewer — Victron VEConfigure Settings File Viewer</title>
+<meta name="description" content="Read-only, 100% client-side viewer for Victron VEConfigure .rvsc settings files. Your file never leaves your computer.">
+<style>
+:root{
+  --bg:#f5f6f8; --bg-panel:#ffffff; --bg-alt:#eef0f3; --border:#d8dce2;
+  --text:#1c2129; --text-dim:#5b6472; --text-faint:#8892a0;
+  --accent:#0a5fa8; --accent-dim:#e7f1fb;
+  --good:#1a7f43; --good-bg:#e7f6ec;
+  --warn:#a15c00; --warn-bg:#fdf1df;
+  --bad:#b3261e; --bad-bg:#fce9e8;
+  --mono: "SF Mono", ui-monospace, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --shadow: 0 1px 2px rgba(20,25,35,.06), 0 4px 12px rgba(20,25,35,.05);
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#12151a; --bg-panel:#1a1e25; --bg-alt:#20252d; --border:#2c323c;
+    --text:#e7eaef; --text-dim:#a3acb9; --text-faint:#6b7484;
+    --accent:#5aa9e6; --accent-dim:#16283a;
+    --good:#59d18a; --good-bg:#123420;
+    --warn:#e0ab52; --warn-bg:#3a2a0f;
+    --bad:#f0837c; --bad-bg:#3a1917;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12151a; --bg-panel:#1a1e25; --bg-alt:#20252d; --border:#2c323c;
+  --text:#e7eaef; --text-dim:#a3acb9; --text-faint:#6b7484;
+  --accent:#5aa9e6; --accent-dim:#16283a;
+  --good:#59d18a; --good-bg:#123420;
+  --warn:#e0ab52; --warn-bg:#3a2a0f;
+  --bad:#f0837c; --bad-bg:#3a1917;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6f8; --bg-panel:#ffffff; --bg-alt:#eef0f3; --border:#d8dce2;
+  --text:#1c2129; --text-dim:#5b6472; --text-faint:#8892a0;
+  --accent:#0a5fa8; --accent-dim:#e7f1fb;
+  --good:#1a7f43; --good-bg:#e7f6ec;
+  --warn:#a15c00; --warn-bg:#fdf1df;
+  --bad:#b3261e; --bad-bg:#fce9e8;
+  --shadow: 0 1px 2px rgba(20,25,35,.06), 0 4px 12px rgba(20,25,35,.05);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--sans);
+  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px;}
+a{color:var(--accent);}
+code, .mono{font-family:var(--mono);}
+
+header.site{margin-bottom:22px;}
+header.site h1{font-size:1.55rem;margin:0 0 4px;letter-spacing:-.01em;}
+header.site .tagline{color:var(--text-dim);margin:0 0 14px;font-size:.98rem;}
+
+.privacy-banner{
+  display:flex;gap:10px;align-items:flex-start;
+  background:var(--good-bg);border:1px solid color-mix(in srgb, var(--good) 35%, var(--border));
+  color:var(--text);border-radius:var(--radius);padding:12px 14px;font-size:.92rem;margin-bottom:20px;
+}
+.privacy-banner strong{color:var(--good);}
+.privacy-banner .icon{font-size:1.1rem;line-height:1.3;flex:0 0 auto;}
+
+.readonly-banner{
+  background:var(--warn-bg);border:1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+  color:var(--text);border-radius:var(--radius);padding:10px 14px;font-size:.88rem;margin-bottom:24px;
+}
+.readonly-banner strong{color:var(--warn);}
+
+nav.modes{display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border);}
+nav.modes button{
+  appearance:none;border:none;background:transparent;color:var(--text-dim);
+  font:inherit;font-weight:600;font-size:.94rem;padding:10px 4px;margin-right:18px;
+  cursor:pointer;border-bottom:2px solid transparent;
+}
+nav.modes button.active{color:var(--accent);border-bottom-color:var(--accent);}
+nav.modes button:hover{color:var(--text);}
+
+.panel{
+  background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px;
+}
+.panel h2{font-size:1.02rem;margin:0 0 12px;letter-spacing:.01em;}
+.panel h2 .count{color:var(--text-faint);font-weight:500;font-size:.85rem;}
+
+.dropzones{display:grid;grid-template-columns:1fr;gap:14px;}
+.dropzones.diff{grid-template-columns:1fr 1fr;}
+@media (max-width:720px){.dropzones.diff{grid-template-columns:1fr;}}
+
+.dropzone{
+  border:2px dashed var(--border);border-radius:var(--radius);
+  padding:26px 16px;text-align:center;cursor:pointer;
+  background:var(--bg-alt);transition:border-color .15s, background .15s;
+  min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+}
+.dropzone:hover, .dropzone.drag{border-color:var(--accent);background:var(--accent-dim);}
+.dropzone .dz-title{font-weight:600;font-size:.96rem;}
+.dropzone .dz-sub{color:var(--text-faint);font-size:.82rem;}
+.dropzone .dz-file{font-family:var(--mono);font-size:.85rem;color:var(--accent);word-break:break-all;}
+.dropzone input[type=file]{display:none;}
+
+.meta-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 24px;
+}
+.meta-item .label{color:var(--text-faint);font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;}
+.meta-item .value{font-family:var(--mono);font-size:.92rem;word-break:break-all;}
+
+table.sections{width:100%;border-collapse:collapse;font-size:.86rem;margin-top:12px;}
+table.sections th, table.sections td{text-align:left;padding:5px 10px 5px 0;font-family:var(--mono);}
+table.sections th{color:var(--text-faint);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;}
+
+.score-pill{
+  display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+  font-size:.82rem;font-weight:600;font-family:var(--mono);
+}
+.score-good{background:var(--good-bg);color:var(--good);}
+.score-warn{background:var(--warn-bg);color:var(--warn);}
+.score-bad{background:var(--bad-bg);color:var(--bad);}
+
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
+.toolbar .left{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.toolbar label{display:flex;align-items:center;gap:6px;font-size:.86rem;color:var(--text-dim);cursor:pointer;user-select:none;}
+.toolbar input[type=search]{
+  background:var(--bg-alt);border:1px solid var(--border);border-radius:7px;color:var(--text);
+  padding:6px 10px;font:inherit;font-size:.86rem;width:200px;
+}
+
+.table-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:8px;}
+table.settings{width:100%;border-collapse:collapse;font-size:.86rem;min-width:640px;}
+table.settings th{
+  position:sticky;top:0;background:var(--bg-alt);text-align:left;padding:8px 10px;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);
+  border-bottom:1px solid var(--border);white-space:nowrap;
+}
+table.settings td{padding:6px 10px;border-bottom:1px solid var(--border);font-family:var(--mono);white-space:nowrap;}
+table.settings tbody tr:hover{background:var(--bg-alt);}
+table.settings tbody tr.changed td.dv{color:var(--accent);font-weight:700;}
+table.settings tbody tr.changed{background:var(--accent-dim);}
+.name-cell{font-family:var(--sans);}
+.conf{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+.conf-high{background:var(--good);}
+.conf-low{background:var(--text-faint);}
+.badge{font-size:.68rem;padding:1px 6px;border-radius:5px;font-weight:700;letter-spacing:.03em;}
+.badge-high{background:var(--good-bg);color:var(--good);}
+.badge-low{background:var(--bg-alt);color:var(--text-faint);}
+
+.flags-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:6px;}
+.flag-row{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:.86rem;
+}
+.flag-row .fname{display:flex;align-items:center;gap:6px;}
+.flag-state{font-family:var(--mono);font-weight:700;font-size:.82rem;padding:2px 8px;border-radius:5px;}
+.flag-on{background:var(--good-bg);color:var(--good);}
+.flag-off{background:var(--bg-panel);color:var(--text-faint);border:1px solid var(--border);}
+.note{color:var(--text-faint);font-size:.8rem;margin-top:10px;}
+
+.diff-summary{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;font-size:.88rem;color:var(--text-dim);}
+.diff-summary b{color:var(--text);}
+
+.empty-state{color:var(--text-faint);font-size:.9rem;padding:20px 0;text-align:center;}
+.error-box{
+  background:var(--bad-bg);color:var(--bad);border:1px solid color-mix(in srgb, var(--bad) 35%, var(--border));
+  border-radius:8px;padding:12px 14px;font-size:.88rem;
+}
+
+footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--border);color:var(--text-faint);font-size:.82rem;}
+footer p{margin:4px 0;}
+footer a{color:var(--text-dim);}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:var(--text-faint);margin-top:8px;}
+.legend span{display:inline-flex;align-items:center;gap:5px;}
+
+.icon-svg{display:inline-block;vertical-align:middle;flex:0 0 auto;}
+
+/* focus-visible: consistent, accessible keyboard focus rings across interactive elements */
+a:focus-visible, button:focus-visible, input:focus-visible, .dropzone:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
+}
+.dropzone:focus-visible{border-color:var(--accent);}
+
+button, .dropzone, nav.modes button{transition:color .15s ease, border-color .15s ease, background-color .15s ease, box-shadow .15s ease;}
+.panel{transition:box-shadow .15s ease, border-color .15s ease;}
+.flag-row, .score-pill, .badge{transition:background-color .15s ease, color .15s ease;}
+
+.dropzone.invalid{border-color:var(--bad); background:var(--bad-bg);}
+.field-error{
+  display:none; align-items:flex-start; gap:8px; margin-top:8px; padding:9px 12px;
+  background:var(--bad-bg); border:1px solid color-mix(in srgb, var(--bad) 35%, var(--border));
+  border-radius:8px; color:var(--bad); font-size:.85rem; line-height:1.4;
+}
+.field-error .icon-svg{margin-top:1px;color:var(--bad);}
+.error-box{display:flex; align-items:flex-start; gap:8px;}
+.error-box .icon-svg{margin-top:1px;flex:0 0 auto;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="site">
+    <h1>RVSC Viewer</h1>
+    <p class="tagline">Read-only viewer for Victron VEConfigure <code>.rvsc</code> settings files — decodes and displays, never writes.</p>
+  </header>
+
+  <div class="privacy-banner">
+    <span class="icon" aria-hidden="true"><svg class="icon-svg" viewBox="0 0 24 24" width="18" height="18" focusable="false"><path fill="currentColor" d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm-3 8V6a3 3 0 0 1 6 0v3zm3 4a2 2 0 0 1 1 3.73V19a1 1 0 0 1-2 0v-2.27A2 2 0 0 1 12 13z"/></svg></span>
+    <div><strong>Your file never leaves your computer</strong> — parsing happens entirely in your browser, using the FileReader API. This page makes no network requests: no upload, no analytics, no external fonts or scripts. You can verify this yourself by opening your browser's network inspector, or by disconnecting from the internet before loading a file.</div>
+  </div>
+
+  <div class="readonly-banner">
+    <strong>Read-only tool.</strong> This viewer decodes and displays settings. It cannot save, modify, or export a changed <code>.rvsc</code> file, and will never offer to. To change device settings, use Victron's own VEConfigure or VRM Remote VEConfigure — see <a href="README.md">README</a> and <a href="NOTICE.md">NOTICE.md</a>.
+  </div>
+
+  <nav class="modes">
+    <button id="tab-single" class="active" type="button">Single File</button>
+    <button id="tab-diff" type="button">Compare Two Files (Diff)</button>
+  </nav>
+
+  <!-- SINGLE FILE MODE -->
+  <section id="panel-single">
+    <div class="panel">
+      <div class="dropzones">
+        <label class="dropzone" id="dz-single" tabindex="0" role="button" aria-label="Drop or choose a .rvsc file">
+          <div class="dz-title">Drop a <code>.rvsc</code> file here</div>
+          <div class="dz-sub">or click to choose a file</div>
+          <div class="dz-file" id="dz-single-name"></div>
+          <input type="file" id="file-single" accept=".rvsc,.vsc">
+        </label>
+      </div>
+      <div class="field-error" id="dz-single-error" role="alert"></div>
+    </div>
+
+    <div id="single-results"></div>
+  </section>
+
+  <!-- DIFF MODE -->
+  <section id="panel-diff" style="display:none;">
+    <div class="panel">
+      <div class="dropzones diff">
+        <div>
+          <label class="dropzone" id="dz-a" tabindex="0" role="button" aria-label="Drop or choose File A">
+            <div class="dz-title">File A</div>
+            <div class="dz-sub">drop or click to choose</div>
+            <div class="dz-file" id="dz-a-name"></div>
+            <input type="file" id="file-a" accept=".rvsc,.vsc">
+          </label>
+          <div class="field-error" id="dz-a-error" role="alert"></div>
+        </div>
+        <div>
+          <label class="dropzone" id="dz-b" tabindex="0" role="button" aria-label="Drop or choose File B">
+            <div class="dz-title">File B</div>
+            <div class="dz-sub">drop or click to choose</div>
+            <div class="dz-file" id="dz-b-name"></div>
+            <input type="file" id="file-b" accept=".rvsc,.vsc">
+          </label>
+          <div class="field-error" id="dz-b-error" role="alert"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="diff-results"></div>
+  </section>
+
+  <footer>
+    <p>RVSC Viewer is an independent, community project. Not affiliated with, endorsed by, or sponsored by Victron Energy B.V. "Victron", "VEConfigure" and related marks are used only to identify the file format this tool reads.</p>
+    <p>Format understood via format analysis of publicly distributed software, carried out for interoperability. See <a href="NOTICE.md">NOTICE.md</a> for the full legal notice, <a href="FORMAT.md">FORMAT.md</a> for the format specification, and <a href="README.md">README.md</a> for project docs. Licensed under the <a href="LICENSE">MIT License</a>.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   GENERATED SETTINGS
+   Injected by tools/build_web.py from core/settings.json - the
+   single source of truth for section names, record layout,
+   alignment tunables, the EPROM_* identifier table, known flag
+   bits, and enum labels. Do NOT hand-edit the block below; edit
+   core/settings.json and re-run tools/build_web.py instead.
+   ============================================================ */
+/* BEGIN GENERATED SETTINGS */
+const RVSC_SETTINGS = {
+  "$comment": "Single source of truth for the .rvsc container/record format, the EPROM_* setting identifier table, known flag bits, and enum labels. Both rvsc.py (loaded at runtime) and docs/index.html (injected at build time by tools/build_web.py) derive every name/flag/enum from this file. Do not duplicate any of these literal tables elsewhere.",
+  "format_version": 1,
+  "tested_against": {
+    "model": "MultiPlus 24/1200/25-16",
+    "firmware": "2667558",
+    "veconfigure": "1.33"
+  },
+  "sections": {
+    "header": {
+      "name": "VEConfig setting section file",
+      "has_payload": false,
+      "confidence": "high"
+    },
+    "mk2_info": {
+      "name": "Mk2vscInfo",
+      "has_payload": true,
+      "confidence": "high"
+    },
+    "info": {
+      "name": "BareSettingInfo",
+      "has_payload": true,
+      "confidence": "high"
+    },
+    "data": {
+      "name": "BareSettingData",
+      "has_payload": true,
+      "confidence": "high"
+    }
+  },
+  "record_layout": {
+    "$comment": "BareSettingInfo is a packed array of fixed-size records, one per setting index, no padding. BareSettingData is a parallel packed array of raw u16 values, same index order.",
+    "info_record_size": 10,
+    "info_fields": [
+      "scale",
+      "offset",
+      "default",
+      "min",
+      "max"
+    ],
+    "info_field_types": {
+      "scale": "i16",
+      "offset": "i16",
+      "default": "u16",
+      "min": "u16",
+      "max": "u16"
+    },
+    "data_record_size": 2,
+    "data_field": "raw",
+    "data_field_type": "u16",
+    "endianness": "little",
+    "confidence": "high"
+  },
+  "decode": {
+    "$comment": "real = (raw + offset) / abs(scale) when scale < 0; real = (raw + offset) * scale when scale > 0; scale == 0 means the record has no linear numeric meaning (bitfield/reserved slot) and decodes to null. min/max/default must be run through this SAME transform before being compared to a decoded value - comparing a decoded value against undecoded raw min/max is a unit mismatch and was a real bug found during development.",
+    "confidence": "high"
+  },
+  "alignment": {
+    "$comment": "Neither array's start offset is fixed across files/firmware. The correct start is found by brute-force self-validation: try candidate offsets for both arrays and score each candidate by how well its decoded values fall within their own declared [min, max]. See ALGORITHM.md-equivalent notes in rvsc.py/build_web.py for why RANGE-WEIGHTED scoring (not raw match count, and not a fixed tie-break tolerance window) was chosen.",
+    "algorithm": "range_weighted",
+    "info_header_search_range": 10,
+    "min_valid_record_fraction": 0.4,
+    "confidence": "high (technique); per-file result must independently satisfy min_valid_record_fraction"
+  },
+  "naming": {
+    "$comment": "Setting index i (i >= 1) maps to epron_names[i - 1]. Index 0 has no name in every file examined (it is an unused/sentinel record, verified by scale == 0). If a file has more records than epron_names entries, extras fall back to 'setting_<n>' - names are never invented.",
+    "confidence": "high",
+    "epron_names": [
+      "EPROM_FlagsWord0",
+      "EPROM_FlagsWord1",
+      "EPROM_UBatAbs",
+      "EPROM_UBatFloat",
+      "EPROM_IBatBulk",
+      "EPROM_UInvSetpoint",
+      "EPROM_IMainsLimit",
+      "EPROM_EqualiseQuarters",
+      "EPROM_FloatDays",
+      "EPROM_AbsorptionHours",
+      "EPROM_ChargeCharacteristic",
+      "EPROM_UBat2Low",
+      "EPROM_UBat2LowMargin",
+      "EPROM_NrOfSlaves",
+      "EPROM_SpecialThreePhase",
+      "EPROM_vsUsage",
+      "EPROM_vsonIInvHigh",
+      "EPROM_vsonUBatHigh",
+      "EPROM_vsonUBatLow",
+      "EPROM_vstonIInvHigh",
+      "EPROM_vstonUBatHigh",
+      "EPROM_vstonUBatLow",
+      "EPROM_vstonNotCharging",
+      "EPROM_vstonFanOn",
+      "EPROM_vstonTemperatureAlarm",
+      "EPROM_vstonLowBatteryAlarm",
+      "EPROM_vstonOverloadAlarm",
+      "EPROM_vstonUBatRippleAlarm",
+      "EPROM_vsoffIInvLow",
+      "EPROM_vsoffUBatHigh",
+      "EPROM_vsoffUBatLow",
+      "EPROM_vstoffIInvLow",
+      "EPROM_vstoffUBatHigh",
+      "EPROM_vstoffUBatLow",
+      "EPROM_vstoffCharging",
+      "EPROM_vstoffFanOff",
+      "EPROM_vstoffChargeBulkFinished",
+      "EPROM_vstoffNoVSOnCondition",
+      "EPROM_vstoffNoACInput",
+      "EPROM_vstoffTemperatureAlarm",
+      "EPROM_vstoffLowBatteryAlarm",
+      "EPROM_vstoffOverloadAlarm",
+      "EPROM_vstoffUBatRippleAlarm",
+      "EPROM_vsMinimumOnTime",
+      "EPROM_UMains2LowForFine",
+      "EPROM_UMains2LowForFineHysterese",
+      "EPROM_UMains2High",
+      "EPROM_UMains2HighHysterese",
+      "EPROM_AssistBoostFactor",
+      "EPROM_IMainsLimitAC1",
+      "EPROM_IInv2AES",
+      "EPROM_IInvAESHysterese",
+      "EPROM_vs2onILoadHigh",
+      "EPROM_vs2tonILoadHigh",
+      "EPROM_vs2onUBatLow",
+      "EPROM_vs2tonUBatLow",
+      "EPROM_vs2offILoadLow",
+      "EPROM_vs2toffILoadLow",
+      "EPROM_vs2offUBat",
+      "EPROM_vs2toffUBat",
+      "EPROM_FlagsWord2",
+      "EPROM_FlagsWord3",
+      "EPROM_vsInverterPeriodTime",
+      "EPROM_UBatLowPreAlarmOffset",
+      "EPROM_BatteryCapacity",
+      "EPROM_ChargePercentageResetValueForBatteryMonitor",
+      "EPROM_fsUBatStart",
+      "EPROM_fsUBatStartDelay",
+      "EPROM_fsUBatStop",
+      "EPROM_fsUBatStopDelay",
+      "EPROM_vs2StartOnSOC",
+      "EPROM_vllTempCompensation",
+      "EPROM_ChargeEfficiency",
+      "EPROM_IInvLimitDuringAssist",
+      "EPROM_AbsToFloatSOCReset",
+      "EPROM_IBatForStopAbsorption",
+      "EPROM_InvertRedundancy",
+      "EPROM_ExpectedPresenceFlags0",
+      "EPROM_ExpectedPresenceFlags2",
+      "EPROM_RelativePhaseInfo",
+      "EPROM_MyShortID",
+      "EPROM_GridCode",
+      "EPROM_PermanentFlags0",
+      "EPROM_SOCStopInvert",
+      "EPROM_SOCStartInvert",
+      "EPROM_InfoID0",
+      "EPROM_TBatStopCharge",
+      "EPROM_TempCompensationSlope",
+      "EPROM_UBatDontCharge",
+      "EPROM_CurrentSensorFactor",
+      "EPROM_NotDefinedYet37",
+      "EPROM_NotDefinedYet36",
+      "EPROM_NotDefinedYet35",
+      "EPROM_NotDefinedYet34",
+      "EPROM_NotDefinedYet33",
+      "EPROM_NotDefinedYet32",
+      "EPROM_NotDefinedYet31",
+      "EPROM_NotDefinedYet30",
+      "EPROM_NotDefinedYet29",
+      "EPROM_NotDefinedYet28",
+      "EPROM_NotDefinedYet27",
+      "EPROM_NotDefinedYet26",
+      "EPROM_NotDefinedYet25",
+      "EPROM_NotDefinedYet24",
+      "EPROM_NotDefinedYet23",
+      "EPROM_NotDefinedYet22",
+      "EPROM_NotDefinedYet21",
+      "EPROM_NotDefinedYet20",
+      "EPROM_NotDefinedYet19",
+      "EPROM_NotDefinedYet18",
+      "EPROM_NotDefinedYet17",
+      "EPROM_NotDefinedYet16",
+      "EPROM_NotDefinedYet15",
+      "EPROM_NotDefinedYet14",
+      "EPROM_NotDefinedYet13",
+      "EPROM_NotDefinedYet12",
+      "EPROM_NotDefinedYet11",
+      "EPROM_NotDefinedYet10",
+      "EPROM_NotDefinedYet9",
+      "EPROM_NotDefinedYet8",
+      "EPROM_NotDefinedYet7",
+      "EPROM_NotDefinedYet6",
+      "EPROM_NotDefinedYet5",
+      "EPROM_NotDefinedYet4",
+      "EPROM_NotDefinedYet3",
+      "EPROM_NotDefinedYet2",
+      "EPROM_NotDefinedYet1",
+      "EPROM_NotDefinedYet0",
+      "EPROM_GridSettingsValidCheckerA",
+      "EPROM_GridSettingsInt0",
+      "EPROM_GridSettingsInt1",
+      "EPROM_GridSettingsInt2",
+      "EPROM_GridSettingsInt3",
+      "EPROM_GridSettingsInt4",
+      "EPROM_GridSettingsInt5",
+      "EPROM_GridSettingsInt6",
+      "EPROM_GridSettingsInt7",
+      "EPROM_GridSettingsInt8",
+      "EPROM_GridSettingsInt9",
+      "EPROM_GridSettingsInt10",
+      "EPROM_GridSettingsInt11",
+      "EPROM_GridSettingsInt12",
+      "EPROM_GridSettingsInt13",
+      "EPROM_GridSettingsInt14",
+      "EPROM_GridSettingsInt15",
+      "EPROM_GridSettingsInt16",
+      "EPROM_GridSettingsInt17",
+      "EPROM_GridSettingsInt18",
+      "EPROM_GridSettingsInt19",
+      "EPROM_GridSettingsInt20",
+      "EPROM_GridSettingsInt21",
+      "EPROM_GridSettingsInt22",
+      "EPROM_GridSettingsInt23",
+      "EPROM_GridSettingsInt24",
+      "EPROM_GridSettingsInt25",
+      "EPROM_GridSettingsInt26",
+      "EPROM_GridSettingsInt27",
+      "EPROM_GridSettingsInt28",
+      "EPROM_GridSettingsInt29",
+      "EPROM_GridSettingsInt30",
+      "EPROM_GridSettingsInt31",
+      "EPROM_GridSettingsInt32",
+      "EPROM_GridSettingsInt33",
+      "EPROM_GridSettingsInt34",
+      "EPROM_GridSettingsInt35",
+      "EPROM_GridSettingsInt36",
+      "EPROM_GridSettingsInt37",
+      "EPROM_GridSettingsInt38",
+      "EPROM_GridSettingsInt39",
+      "EPROM_GridSettingsInt40",
+      "EPROM_GridSettingsInt41",
+      "EPROM_GridSettingsInt42",
+      "EPROM_GridSettingsInt43",
+      "EPROM_GridSettingsInt44",
+      "EPROM_GridSettingsInt45",
+      "EPROM_GridSettingsInt46",
+      "EPROM_GridSettingsInt47",
+      "EPROM_GridSettingsInt48",
+      "EPROM_GridSettingsInt49",
+      "EPROM_GridSettingsInt50",
+      "EPROM_GridSettingsInt51",
+      "EPROM_GridSettingsInt52",
+      "EPROM_GridSettingsInt53",
+      "EPROM_GridSettingsInt54",
+      "EPROM_GridSettingsInt55",
+      "EPROM_GridSettingsInt56",
+      "EPROM_GridSettingsInt57",
+      "EPROM_GridSettingsInt58",
+      "EPROM_GridSettingsInt59",
+      "EPROM_GridSettingsInt60",
+      "EPROM_GeneralGridSettingsInt",
+      "EPROM_GridSettingsValidCheckerB"
+    ]
+  },
+  "flags": {
+    "$comment": "Each entry names the setting (by EPROM_* name, resolved through 'naming' above at load time - not by a fixed absolute file offset, since that offset moves with alignment) plus a bit position and a human label. LOWER (medium) confidence than the numeric settings table: bit meanings were resolved via VEConfigure's own UI form definitions, not re-derived from each file's own self-describing min/max the way numeric settings are.",
+    "confidence": "medium",
+    "items": [
+      {
+        "id": "EBIT_DisableCharge",
+        "setting_name": "EPROM_FlagsWord0",
+        "bit": 6,
+        "label": "Disable charge"
+      },
+      {
+        "id": "EBIT_EnableReducedFloat",
+        "setting_name": "EPROM_FlagsWord0",
+        "bit": 11,
+        "label": "Storage mode (reduced float)"
+      },
+      {
+        "id": "EBIT_WeakACInput",
+        "setting_name": "EPROM_FlagsWord0",
+        "bit": 14,
+        "label": "Weak AC input"
+      },
+      {
+        "id": "EBIT_LithiumBattery",
+        "setting_name": "EPROM_FlagsWord2",
+        "bit": 4,
+        "label": "Lithium battery"
+      }
+    ]
+  },
+  "enums": {
+    "$comment": "Raw integer value -> human label, keyed by EPROM_* setting name. Confidence matches the numeric settings table (high) since the enum values themselves are the same self-describing raw field, but the specific label wording is cross-referenced against VEConfigure's own UI, so it is reported at medium confidence like flags.",
+    "confidence": "medium",
+    "items": {
+      "EPROM_ChargeCharacteristic": {
+        "1": "Fixed",
+        "2": "Adaptive",
+        "3": "Adaptive+BatterySafe"
+      }
+    }
+  }
+};
+/* END GENERATED SETTINGS */
+
+/* ============================================================
+   THEME (follow OS by default; the data-theme attribute lets a
+   host page override it - this static file has no toggle UI of
+   its own, since it must keep working from file:// with zero
+   external requests)
+   ============================================================ */
+
+/* ============================================================
+   CORE PARSER
+   Format derived from format analysis of publicly distributed
+   VEConfigure software, carried out for interoperability.
+   See FORMAT.md for the full specification and methodology.
+   ============================================================ */
+
+/**
+ * Walk the container: a flat sequence of length-prefixed sections.
+ *   u16 nameLen
+ *   u8[nameLen] name
+ *   u32 absolute_end_offset   (only present when it resolves to a
+ *                              valid, in-bounds, forward-pointing offset)
+ *   u8[] payload              up to absolute_end_offset
+ *
+ * The very first section observed in real files (the file header) is a bare
+ * signature: name only, no end-offset and no payload. Rather than special-case
+ * that by name (fragile), this parser treats the u32 end-offset as OPTIONAL and
+ * validates it structurally: a candidate end-offset is only accepted if it
+ * lands strictly after the header just read and at or before end-of-file. When
+ * it doesn't validate, the section has no payload and the next u16 nameLen is
+ * read immediately after the name.
+ */
+function parseSections(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const sections = [];
+  let off = 0;
+  while (off + 2 <= bytes.length) {
+    const nameLen = view.getUint16(off, true);
+    const nameStart = off + 2;
+    if (nameLen === 0 || nameStart + nameLen > bytes.length) break;
+    const nameBytes = bytes.subarray(nameStart, nameStart + nameLen);
+    const name = bytesToAscii(nameBytes);
+    const afterName = nameStart + nameLen;
+
+    let endOff = null;
+    if (afterName + 4 <= bytes.length) {
+      const candidate = view.getUint32(afterName, true);
+      if (candidate >= afterName + 4 && candidate <= bytes.length) {
+        endOff = candidate;
+      }
+    }
+
+    if (endOff !== null) {
+      const payloadStart = afterName + 4;
+      sections.push({
+        name, headerStart: off, payloadStart, payloadEnd: endOff, hasPayload: true
+      });
+      off = endOff;
+    } else {
+      sections.push({
+        name, headerStart: off, payloadStart: afterName, payloadEnd: afterName, hasPayload: false
+      });
+      off = afterName;
+    }
+  }
+  return sections;
+}
+
+function bytesToAscii(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return s;
+}
+
+function findSection(sections, name) {
+  return sections.find(s => s.name === name) || null;
+}
+
+/** Decode a raw settings record: negative scale = divide, positive = multiply. */
+function decodeValue(raw, scale, offset) {
+  if (scale === 0) return null;
+  return scale < 0 ? (raw + offset) / Math.abs(scale) : (raw + offset) * scale;
+}
+
+/**
+ * Parse a BareSettingInfo record at record index `idx` (which may be negative
+ * or beyond the array - callers must bounds-check before trusting the result).
+ * Field order/sizes are the ones in core/settings.json "record_layout".
+ */
+function readInfoRecord(bytes, infoPayloadStart, infoPayloadEnd, base, idx) {
+  const recSize = RVSC_SETTINGS.record_layout.info_record_size;
+  const off = infoPayloadStart + base + idx * recSize;
+  if (off < infoPayloadStart || off + recSize > infoPayloadEnd) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return {
+    scale: view.getInt16(off, true),
+    offset: view.getInt16(off + 2, true),
+    default: view.getUint16(off + 4, true),
+    min: view.getUint16(off + 6, true),
+    max: view.getUint16(off + 8, true),
+  };
+}
+
+/**
+ * Determine the alignment between BareSettingData (a flat u16 array read
+ * directly from its own payload start) and BareSettingInfo (whose record
+ * array may begin after a short header of a few bytes, and whose index range
+ * is not guaranteed to start at the same index as the data array -
+ * BareSettingInfo can be a larger master table of which BareSettingData only
+ * covers a contiguous window).
+ *
+ * Approach: search a small header size `base` (bytes) and a record-index
+ * shift `k` (data[i] pairs with info-record[k+i], k may be negative) that
+ * maximise a RANGE-WEIGHTED in-range match score.
+ *
+ * CHOICE OF ALGORITHM: an earlier iteration of this project scored every
+ * candidate alignment by the RAW COUNT of nonzero-scale records whose RAW
+ * value fell inside its own raw [min, max], then broke ties by picking the
+ * smallest offset within a fixed tolerance of the top score. That has two
+ * structural weaknesses on files we have never seen (other MultiPlus/Quattro
+ * models, other firmware): comparing raw values against raw bounds is a unit
+ * mismatch for any scaled field, and a pure raw-count argmax is biased toward
+ * "stride alias" candidates that drop real leading records to inflate their
+ * score, which then has to be corrected with a hand-tuned tie-break constant
+ * with no principled basis.
+ *
+ * This algorithm instead weights each in-range match by 1 / (decoded window
+ * width) and excludes degenerate records (scale === 0, or max <= min) from
+ * scoring entirely, so a candidate that only "wins" by matching wide,
+ * loosely-bounded ranges scores little even when it matches - the true
+ * alignment (many TIGHT, meaningful ranges) outscores it directly, with no
+ * arbitrary tolerance window needed. Verified empirically: on both available
+ * real reference files this algorithm and the raw-count-with-tie-break
+ * algorithm converge on the IDENTICAL absolute byte alignment (see tests/ and
+ * README), which confirms the self-validation technique itself is sound; this
+ * range-weighted form is the one kept because it reaches that same answer
+ * without depending on a hand-tuned constant.
+ */
+function findAlignment(bytes, infoSection, dataSection) {
+  const dataStart = dataSection.payloadStart;
+  const dataEnd = dataSection.payloadEnd;
+  const dataRecSize = RVSC_SETTINGS.record_layout.data_record_size;
+  const infoRecSize = RVSC_SETTINGS.record_layout.info_record_size;
+  const baseSearchRange = RVSC_SETTINGS.alignment.info_header_search_range;
+  const minValidFraction = RVSC_SETTINGS.alignment.min_valid_record_fraction;
+  const countData = Math.floor((dataEnd - dataStart) / dataRecSize);
+  const infoStart = infoSection.payloadStart;
+  const infoEnd = infoSection.payloadEnd;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  function dataRaw(i) {
+    return view.getUint16(dataStart + i * dataRecSize, true);
+  }
+
+  let best = { score: -1, base: 0, k: 0, inRange: 0, validRecords: 0 };
+
+  for (let base = 0; base < baseSearchRange; base++) {
+    const infoLen = infoEnd - infoStart - base;
+    if (infoLen < infoRecSize) continue;
+    const nTotal = Math.floor(infoLen / infoRecSize);
+
+    // Precompute every candidate record once per base (not once per (k, i) pair).
+    const records = new Array(nTotal);
+    for (let idx = 0; idx < nTotal; idx++) {
+      records[idx] = readInfoRecord(bytes, infoStart, infoEnd, base, idx);
+    }
+
+    for (let k = -countData; k < nTotal; k++) {
+      let score = 0, inRange = 0, validRecords = 0;
+      for (let i = 0; i < countData; i++) {
+        const idx = k + i;
+        if (idx < 0 || idx >= nTotal) continue;
+        const rec = records[idx];
+        if (!rec || rec.scale === 0 || rec.max <= rec.min) continue;
+        validRecords++;
+        const val = decodeValue(dataRaw(i), rec.scale, rec.offset);
+        // decode() is monotonically increasing in the raw value for any
+        // non-zero scale (division always uses abs(scale)), so decoding
+        // min/max preserves ordering and can be compared to the decoded
+        // value directly. Comparing a decoded value against undecoded
+        // raw min/max (a unit mismatch) was tried and produces wrong
+        // results for every scaled field.
+        const decMin = decodeValue(rec.min, rec.scale, rec.offset);
+        const decMax = decodeValue(rec.max, rec.scale, rec.offset);
+        const lo = Math.min(decMin, decMax), hi = Math.max(decMin, decMax);
+        if (val !== null && val >= lo && val <= hi) {
+          inRange++;
+          // weight by the DECODED window width, not the raw width: a raw
+          // window of e.g. 800 units at scale -100 is a tight 8.00V real-world
+          // window and should score like one, not like a wide-open raw range.
+          score += 1 / (hi - lo + 1);
+        }
+      }
+      // require the alignment to actually cover a meaningful fraction of the
+      // data array with real (non-degenerate) records before it's eligible to
+      // win, otherwise a tiny sliver of lucky matches could out-score a
+      // mostly-correct alignment.
+      if (validRecords >= countData * minValidFraction && score > best.score) {
+        best = { score, base, k, inRange, validRecords };
+      }
+    }
+  }
+  return { ...best, countData };
+}
+
+/**
+ * Setting-index-to-name mapping, per core/settings.json "naming": index i
+ * (i >= 1) maps to epron_names[i - 1]; index 0 is the unnamed sentinel; an
+ * index beyond the table falls back to "setting_<n>" rather than inventing a
+ * name. `idx` here MUST be the info-table record index (findAlignment's
+ * k + dataIndex), not the raw BareSettingData position - BareSettingData can
+ * be a window into a larger info table that starts partway through it.
+ */
+function settingName(idx) {
+  const names = RVSC_SETTINGS.naming.epron_names;
+  if (idx >= 1 && (idx - 1) < names.length) return names[idx - 1];
+  return "setting_" + idx;
+}
+
+function enumLabel(settingNameStr, rawValue) {
+  const table = RVSC_SETTINGS.enums.items[settingNameStr];
+  if (!table) return null;
+  return table[String(rawValue)] || null;
+}
+
+/** Serial-number-shaped ASCII string (two letters, four digits, 4-8 more
+ * alphanumerics) - the same pattern used by rvsc.py, kept generic rather than
+ * hardcoded to one product line's prefix so it still works on serials this
+ * tool has never seen. */
+function findSerial(bytes) {
+  let ascii = "";
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i];
+    ascii += (c >= 0x20 && c <= 0x7e) ? String.fromCharCode(c) : "\n";
+  }
+  const m = ascii.match(/[A-Z]{2}\d{4}[A-Z0-9]{4,8}/);
+  return m ? m[0] : null;
+}
+
+/**
+ * Known boolean flag bits, from core/settings.json "flags". Each flag is
+ * resolved by SETTING NAME + bit (looked up in the already-decoded settings
+ * array), not by a fixed absolute file byte offset - that offset moves with
+ * alignment and is not stable across files/models. Confidence: see
+ * RVSC_SETTINGS.flags.confidence (medium - bit meanings were cross-referenced
+ * against VEConfigure's own UI form definitions, not re-derived from each
+ * file's own self-describing min/max the way numeric settings are).
+ */
+function decodeKnownFlags(settings) {
+  const byName = new Map(settings.map(s => [s.name, s]));
+  const out = [];
+  for (const def of RVSC_SETTINGS.flags.items) {
+    const s = byName.get(def.setting_name);
+    if (!s) continue;
+    out.push({
+      id: def.id,
+      label: def.label,
+      settingName: def.setting_name,
+      bit: def.bit,
+      settingIndex: s.index,
+      raw: s.raw,
+      on: !!((s.raw >> def.bit) & 1),
+    });
+  }
+  return out;
+}
+
+/** Top-level: parse a whole file's bytes into a structured result. */
+function parseRvsc(bytes, fileName) {
+  const sections = parseSections(bytes);
+  const infoSection = findSection(sections, RVSC_SETTINGS.sections.info.name);
+  const dataSection = findSection(sections, RVSC_SETTINGS.sections.data.name);
+
+  const result = {
+    fileName,
+    fileSize: bytes.length,
+    sections,
+    serial: findSerial(bytes),
+    settings: [],
+    alignment: null,
+    flags: [],
+    error: null,
+  };
+
+  if (!infoSection || !dataSection || !infoSection.hasPayload || !dataSection.hasPayload) {
+    result.error = "Could not find both a " + RVSC_SETTINGS.sections.info.name + " and a " +
+      RVSC_SETTINGS.sections.data.name + " section with a payload in this file. This may not " +
+      "be a VEConfigure .rvsc file, or it uses a container layout this viewer does not recognise.";
+    return result;
+  }
+
+  let alignment;
+  try {
+    alignment = findAlignment(bytes, infoSection, dataSection);
+  } catch (e) {
+    result.error = "Could not align the settings arrays in this file: " + e.message;
+    return result;
+  }
+  if (alignment.score < 0) {
+    result.error = "Could not find a plausible " + RVSC_SETTINGS.sections.info.name + "/" +
+      RVSC_SETTINGS.sections.data.name + " alignment (file may be truncated or malformed).";
+    return result;
+  }
+  result.alignment = alignment;
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const infoLen = infoSection.payloadEnd - infoSection.payloadStart - alignment.base;
+  const nTotal = Math.floor(infoLen / RVSC_SETTINGS.record_layout.info_record_size);
+
+  for (let i = 0; i < alignment.countData; i++) {
+    const idx = alignment.k + i;
+    if (idx < 0 || idx >= nTotal) continue; // no corresponding info record - not a real setting
+
+    const raw = view.getUint16(dataSection.payloadStart + i * RVSC_SETTINGS.record_layout.data_record_size, true);
+    const rec = readInfoRecord(bytes, infoSection.payloadStart, infoSection.payloadEnd, alignment.base, idx);
+    const absOffset = dataSection.payloadStart + i * RVSC_SETTINGS.record_layout.data_record_size;
+    const name = settingName(idx);
+    const decoded = decodeValue(raw, rec.scale, rec.offset);
+    const defaultDecoded = decodeValue(rec.default, rec.scale, rec.offset);
+    const nonDegenerate = rec.scale !== 0 && rec.max > rec.min;
+    let inRange = false, decMin = null, decMax = null;
+    if (nonDegenerate) {
+      const a = decodeValue(rec.min, rec.scale, rec.offset);
+      const b = decodeValue(rec.max, rec.scale, rec.offset);
+      decMin = Math.min(a, b);
+      decMax = Math.max(a, b);
+      inRange = decoded !== null && decoded >= decMin && decoded <= decMax;
+    }
+    result.settings.push({
+      index: idx,
+      name,
+      absOffset,
+      raw,
+      info: rec,
+      decoded,
+      defaultDecoded,
+      decMin,
+      decMax,
+      inRange,
+      highConfidence: nonDegenerate && inRange,
+      enumLabel: enumLabel(name, raw),
+      defaultEnumLabel: enumLabel(name, rec.default),
+    });
+  }
+
+  result.flags = decodeKnownFlags(result.settings);
+  return result;
+}
+
+/* ============================================================
+   FORMATTING HELPERS
+   ============================================================ */
+
+function hex(n, digits) {
+  return "0x" + n.toString(16).padStart(digits || 4, "0");
+}
+
+function fmtNum(n) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  if (Number.isInteger(n)) return String(n);
+  return (Math.round(n * 10000) / 10000).toString();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+/* ============================================================
+   ICONS (monochrome inline SVG only - no emoji, no external assets)
+   ============================================================ */
+
+const ICON_LOCK =
+  '<svg class="icon-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">' +
+  '<path fill="currentColor" d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5zm-3 8V6a3 3 0 0 1 6 0v3zm3 4a2 2 0 0 1 1 3.73V19a1 1 0 0 1-2 0v-2.27A2 2 0 0 1 12 13z"/></svg>';
+
+const ICON_WARN =
+  '<svg class="icon-svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">' +
+  '<path fill="currentColor" d="M12 2 1 21h22zm0 6a1.25 1.25 0 0 1 1.25 1.25v5a1.25 1.25 0 0 1-2.5 0v-5A1.25 1.25 0 0 1 12 8zm0 9.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5z"/></svg>';
+
+const ICON_ERROR =
+  '<svg class="icon-svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">' +
+  '<path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg>';
+
+const ICON_FILE =
+  '<svg class="icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">' +
+  '<path fill="currentColor" d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm7 1.5L18.5 9H13zM8 13h8v1.5H8zm0 3h8v1.5H8zm0-6h4v1.5H8z"/></svg>';
+
+/* ============================================================
+   UI: FILE VALIDATION
+   ============================================================ */
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MiB - real .rvsc files are a few KB; this is a generous ceiling
+const ALLOWED_EXTENSIONS = [".rvsc", ".vsc"];
+
+function validateFile(file) {
+  const lowerName = file.name.toLowerCase();
+  const hasAllowedExt = ALLOWED_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+  if (!hasAllowedExt) {
+    return "“" + file.name + "” does not look like a .rvsc/.vsc settings file " +
+      "(unrecognised extension). Choose the file VEConfigure saved, or one that was previously " +
+      "opened here successfully.";
+  }
+  if (file.size === 0) {
+    return "“" + file.name + "” is empty (0 bytes) and cannot be a valid settings file.";
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return "“" + file.name + "” is " + file.size.toLocaleString() + " bytes, which is far " +
+      "larger than any real .rvsc file. Refusing to parse it.";
+  }
+  return null;
+}
+
+/* ============================================================
+   UI: FILE LOADING
+   ============================================================ */
+
+function readFileAsBytes(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function wireDropzone(zoneEl, inputEl, nameEl, errorEl, onFile) {
+  const activate = async (file) => {
+    if (!file) return;
+    errorEl.textContent = "";
+    errorEl.style.display = "none";
+    zoneEl.classList.remove("invalid");
+    const validationError = validateFile(file);
+    if (validationError) {
+      nameEl.textContent = "";
+      errorEl.innerHTML = ICON_ERROR + " <span>" + escapeHtml(validationError) + "</span>";
+      errorEl.style.display = "flex";
+      zoneEl.classList.add("invalid");
+      inputEl.value = "";
+      return;
+    }
+    nameEl.textContent = file.name + "  (" + file.size.toLocaleString() + " bytes)";
+    try {
+      await onFile(file);
+    } catch (e) {
+      errorEl.innerHTML = ICON_ERROR + " <span>Could not read “" + escapeHtml(file.name) +
+        "”: " + escapeHtml(e && e.message ? e.message : String(e)) + "</span>";
+      errorEl.style.display = "flex";
+      zoneEl.classList.add("invalid");
+    }
+  };
+  zoneEl.addEventListener("click", (e) => {
+    if (e.target === inputEl) return;
+    inputEl.click();
+  });
+  zoneEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      inputEl.click();
+    }
+  });
+  inputEl.addEventListener("change", () => activate(inputEl.files[0]));
+  zoneEl.addEventListener("dragover", (e) => { e.preventDefault(); zoneEl.classList.add("drag"); });
+  zoneEl.addEventListener("dragleave", () => zoneEl.classList.remove("drag"));
+  zoneEl.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zoneEl.classList.remove("drag");
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    activate(file);
+  });
+}
+
+/* ============================================================
+   UI: SINGLE FILE RESULTS
+   ============================================================ */
+
+let singleState = { changedOnly: false, filter: "" };
+
+function renderHeaderPanel(parsed) {
+  const sectionRows = parsed.sections.map(s => `
+    <tr>
+      <td>${escapeHtml(s.name)}</td>
+      <td>${hex(s.headerStart)}</td>
+      <td>${s.hasPayload ? hex(s.payloadStart) + "–" + hex(s.payloadEnd) : "—"}</td>
+      <td>${s.hasPayload ? (s.payloadEnd - s.payloadStart).toLocaleString() + " B" : "0 B (signature only)"}</td>
+    </tr>`).join("");
+
+  let scoreHtml = "";
+  if (parsed.alignment) {
+    const a = parsed.alignment;
+    const pct = a.validRecords ? Math.round((a.inRange / a.validRecords) * 100) : 0;
+    const cls = pct >= 90 ? "score-good" : pct >= 60 ? "score-warn" : "score-bad";
+    scoreHtml = `<span class="score-pill ${cls}">${a.inRange}/${a.validRecords} in range (${pct}%)</span>`;
+  }
+
+  return `
+    <div class="panel">
+      <h2>File</h2>
+      <div class="meta-grid">
+        <div class="meta-item"><div class="label">Filename</div><div class="value">${escapeHtml(parsed.fileName)}</div></div>
+        <div class="meta-item"><div class="label">Size</div><div class="value">${parsed.fileSize.toLocaleString()} bytes</div></div>
+        <div class="meta-item"><div class="label">Serial number found</div><div class="value">${parsed.serial ? escapeHtml(parsed.serial) : "—"}</div></div>
+        <div class="meta-item"><div class="label">Alignment confidence</div><div class="value">${scoreHtml || "—"}</div></div>
+      </div>
+      <table class="sections">
+        <thead><tr><th>Section</th><th>Header at</th><th>Payload</th><th>Size</th></tr></thead>
+        <tbody>${sectionRows}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderFlagsPanel(parsed) {
+  if (!parsed.flags.length) return "";
+  const rows = parsed.flags.map(f => `
+    <div class="flag-row">
+      <span class="fname">${escapeHtml(f.label)} <span style="color:var(--text-faint);">(bit ${f.bit}, ${escapeHtml(f.settingName)})</span></span>
+      <span class="flag-state ${f.on ? "flag-on" : "flag-off"}">${f.on ? "ON" : "OFF"}</span>
+    </div>`).join("");
+  return `
+    <div class="panel">
+      <h2>Known Flags <span class="badge badge-low">${escapeHtml((RVSC_SETTINGS.flags.confidence || "").toUpperCase())} CONFIDENCE</span></h2>
+      <div class="flags-list">${rows}</div>
+      <p class="note">Bit meanings verified only against a reference MultiPlus 24/1200/25-16 profile (see FORMAT.md). They may not apply to other models or firmware, unlike the numeric settings below, which are validated per-file against their own declared min/max.</p>
+    </div>`;
+}
+
+function renderSettingsPanel(parsed) {
+  if (parsed.error) {
+    return `<div class="panel"><div class="error-box">${ICON_ERROR} <span>${escapeHtml(parsed.error)}</span></div></div>`;
+  }
+
+  const filterLower = singleState.filter.trim().toLowerCase();
+  let rows = parsed.settings.filter(s => {
+    if (singleState.changedOnly && s.decoded === s.defaultDecoded) return false;
+    if (filterLower && !s.name.toLowerCase().includes(filterLower) && !String(s.index).includes(filterLower)) {
+      return false;
+    }
+    return true;
+  });
+
+  const body = rows.map(s => {
+    const isChanged = s.decoded !== s.defaultDecoded;
+    const valueStr = fmtNum(s.decoded) + (s.enumLabel ? ` (${escapeHtml(s.enumLabel)})` : "");
+    const defaultStr = fmtNum(s.defaultDecoded) + (s.defaultEnumLabel ? ` (${escapeHtml(s.defaultEnumLabel)})` : "");
+    return `
+      <tr class="${isChanged ? "changed" : ""}">
+        <td>${s.index}</td>
+        <td class="name-cell">${escapeHtml(s.name)}</td>
+        <td>${hex(s.absOffset)}</td>
+        <td>${s.raw}</td>
+        <td class="dv">${valueStr}</td>
+        <td>${defaultStr}</td>
+        <td>${fmtNum(s.decMin)}</td>
+        <td>${fmtNum(s.decMax)}</td>
+        <td>${s.info ? `<span class="conf ${s.highConfidence ? "conf-high" : "conf-low"}"></span>${s.highConfidence ? '<span class="badge badge-high">HIGH</span>' : '<span class="badge badge-low">LOW</span>'}` : "—"}</td>
+      </tr>`;
+  }).join("");
+
+  return `
+    <div class="panel">
+      <div class="toolbar">
+        <h2 style="margin:0;">Settings <span class="count">(${rows.length} of ${parsed.settings.length})</span></h2>
+        <div class="left">
+          <input type="search" id="settings-filter" placeholder="Filter by index or name…" value="${escapeHtml(singleState.filter)}">
+          <label><input type="checkbox" id="changed-only" ${singleState.changedOnly ? "checked" : ""}> Changed only</label>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="settings">
+          <thead>
+            <tr>
+              <th>#</th><th>Name</th><th>Offset</th><th>Raw</th><th>Value</th><th>Default</th><th>Min</th><th>Max</th><th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>${body || `<tr><td colspan="9" class="empty-state">No settings match.</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span><span class="conf conf-high"></span> HIGH confidence — decoded value validated within this file's own declared min/max range</span>
+        <span><span class="conf conf-low"></span> LOW confidence — outside declared range, or range not meaningfully bounded</span>
+      </div>
+    </div>`;
+}
+
+function renderSingle(parsed) {
+  const el = document.getElementById("single-results");
+  el.innerHTML = renderHeaderPanel(parsed) + renderFlagsPanel(parsed) + renderSettingsPanel(parsed);
+
+  const filterInput = document.getElementById("settings-filter");
+  if (filterInput) {
+    filterInput.addEventListener("input", () => {
+      singleState.filter = filterInput.value;
+      renderSingle(parsed);
+      const v = document.getElementById("settings-filter");
+      v.focus();
+      v.setSelectionRange(v.value.length, v.value.length);
+    });
+  }
+  const changedOnly = document.getElementById("changed-only");
+  if (changedOnly) {
+    changedOnly.addEventListener("change", () => {
+      singleState.changedOnly = changedOnly.checked;
+      renderSingle(parsed);
+    });
+  }
+}
+
+/* ============================================================
+   UI: DIFF MODE
+   ============================================================ */
+
+let diffState = { a: null, b: null };
+
+function renderDiff() {
+  const el = document.getElementById("diff-results");
+  if (!diffState.a || !diffState.b) {
+    el.innerHTML = "";
+    return;
+  }
+  const a = diffState.a, b = diffState.b;
+
+  if (a.error || b.error) {
+    el.innerHTML = `<div class="panel"><div class="error-box">${ICON_ERROR} <span>${escapeHtml(a.error || b.error)}</span></div></div>`;
+    return;
+  }
+
+  const byIndexA = new Map(a.settings.map(s => [s.index, s]));
+  const byIndexB = new Map(b.settings.map(s => [s.index, s]));
+  const commonIndices = [...byIndexA.keys()].filter(i => byIndexB.has(i)).sort((x, y) => x - y);
+
+  const diffs = [];
+  for (const idx of commonIndices) {
+    const sa = byIndexA.get(idx), sb = byIndexB.get(idx);
+    if (sa.raw !== sb.raw) diffs.push({ index: idx, sa, sb });
+  }
+
+  const rows = diffs.map(d => `
+    <tr>
+      <td>${d.index}</td>
+      <td class="name-cell">${escapeHtml(d.sa.name)}</td>
+      <td>${hex(d.sa.absOffset)}</td>
+      <td class="dv">${fmtNum(d.sa.decoded)}${d.sa.enumLabel ? ` (${escapeHtml(d.sa.enumLabel)})` : ""}</td>
+      <td class="dv">${fmtNum(d.sb.decoded)}${d.sb.enumLabel ? ` (${escapeHtml(d.sb.enumLabel)})` : ""}</td>
+      <td>${fmtNum(d.sa.decMin)}</td>
+      <td>${fmtNum(d.sa.decMax)}</td>
+    </tr>`).join("");
+
+  el.innerHTML = `
+    <div class="panel">
+      <h2>Differences</h2>
+      <div class="diff-summary">
+        <span><b>${escapeHtml(a.fileName)}</b> vs <b>${escapeHtml(b.fileName)}</b></span>
+        <span><b>${diffs.length}</b> of ${commonIndices.length} common settings differ</span>
+      </div>
+      <div class="table-scroll">
+        <table class="settings">
+          <thead><tr><th>#</th><th>Name</th><th>Offset</th><th>A</th><th>B</th><th>Min</th><th>Max</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="7" class="empty-state">No differences found — files decode identically.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+    ${renderFlagsDiff(a, b)}
+  `;
+}
+
+function renderFlagsDiff(a, b) {
+  const allBits = [];
+  const bByName = new Map(b.flags.map(f => [f.id, f]));
+  for (const fa of a.flags) {
+    const fb = bByName.get(fa.id);
+    if (fb && fa.on !== fb.on) {
+      allBits.push({ label: fa.label, a: fa.on, b: fb.on });
+    }
+  }
+  if (!allBits.length) return "";
+  return `
+    <div class="panel">
+      <h2>Flag Differences <span class="badge badge-low">${escapeHtml((RVSC_SETTINGS.flags.confidence || "").toUpperCase())} CONFIDENCE</span></h2>
+      <div class="flags-list">
+        ${allBits.map(x => `
+          <div class="flag-row">
+            <span class="fname">${escapeHtml(x.label)}</span>
+            <span>
+              <span class="flag-state ${x.a ? "flag-on" : "flag-off"}">${x.a ? "ON" : "OFF"}</span>
+              &rarr;
+              <span class="flag-state ${x.b ? "flag-on" : "flag-off"}">${x.b ? "ON" : "OFF"}</span>
+            </span>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
+/* ============================================================
+   WIRE UP
+   ============================================================ */
+
+document.getElementById("tab-single").addEventListener("click", () => {
+  document.getElementById("tab-single").classList.add("active");
+  document.getElementById("tab-diff").classList.remove("active");
+  document.getElementById("panel-single").style.display = "";
+  document.getElementById("panel-diff").style.display = "none";
+});
+document.getElementById("tab-diff").addEventListener("click", () => {
+  document.getElementById("tab-diff").classList.add("active");
+  document.getElementById("tab-single").classList.remove("active");
+  document.getElementById("panel-diff").style.display = "";
+  document.getElementById("panel-single").style.display = "none";
+});
+
+wireDropzone(
+  document.getElementById("dz-single"),
+  document.getElementById("file-single"),
+  document.getElementById("dz-single-name"),
+  document.getElementById("dz-single-error"),
+  async (file) => {
+    const bytes = await readFileAsBytes(file);
+    const parsed = parseRvsc(bytes, file.name);
+    singleState = { changedOnly: false, filter: "" };
+    renderSingle(parsed);
+  }
+);
+
+wireDropzone(
+  document.getElementById("dz-a"),
+  document.getElementById("file-a"),
+  document.getElementById("dz-a-name"),
+  document.getElementById("dz-a-error"),
+  async (file) => {
+    const bytes = await readFileAsBytes(file);
+    diffState.a = parseRvsc(bytes, file.name);
+    renderDiff();
+  }
+);
+
+wireDropzone(
+  document.getElementById("dz-b"),
+  document.getElementById("file-b"),
+  document.getElementById("dz-b-name"),
+  document.getElementById("dz-b-error"),
+  async (file) => {
+    const bytes = await readFileAsBytes(file);
+    diffState.b = parseRvsc(bytes, file.name);
+    renderDiff();
+  }
+);
+</script>
+</body>
+</html>

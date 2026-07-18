@@ -1,0 +1,8 @@
+.anti-hall/
+.omc/
+.DS_Store
+__pycache__/
+*.pyc
+*.rvsc
+*.vsc
+!tests/fixture.rvsc

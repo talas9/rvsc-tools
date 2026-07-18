@@ -1,0 +1,130 @@
+{
+  "$comment": "Single source of truth for the .rvsc container/record format, the EPROM_* setting identifier table, known flag bits, and enum labels. Both rvsc.py (loaded at runtime) and docs/index.html (injected at build time by tools/build_web.py) derive every name/flag/enum from this file. Do not duplicate any of these literal tables elsewhere.",
+  "format_version": 1,
+
+  "tested_against": {
+    "model": "MultiPlus 24/1200/25-16",
+    "firmware": "2667558",
+    "veconfigure": "1.33"
+  },
+
+  "sections": {
+    "header": { "name": "VEConfig setting section file", "has_payload": false, "confidence": "high" },
+    "mk2_info": { "name": "Mk2vscInfo", "has_payload": true, "confidence": "high" },
+    "info": { "name": "BareSettingInfo", "has_payload": true, "confidence": "high" },
+    "data": { "name": "BareSettingData", "has_payload": true, "confidence": "high" }
+  },
+
+  "record_layout": {
+    "$comment": "BareSettingInfo is a packed array of fixed-size records, one per setting index, no padding. BareSettingData is a parallel packed array of raw u16 values, same index order.",
+    "info_record_size": 10,
+    "info_fields": ["scale", "offset", "default", "min", "max"],
+    "info_field_types": { "scale": "i16", "offset": "i16", "default": "u16", "min": "u16", "max": "u16" },
+    "data_record_size": 2,
+    "data_field": "raw",
+    "data_field_type": "u16",
+    "endianness": "little",
+    "confidence": "high"
+  },
+
+  "decode": {
+    "$comment": "real = (raw + offset) / abs(scale) when scale < 0; real = (raw + offset) * scale when scale > 0; scale == 0 means the record has no linear numeric meaning (bitfield/reserved slot) and decodes to null. min/max/default must be run through this SAME transform before being compared to a decoded value - comparing a decoded value against undecoded raw min/max is a unit mismatch and was a real bug found during development.",
+    "confidence": "high"
+  },
+
+  "alignment": {
+    "$comment": "Neither array's start offset is fixed across files/firmware. The correct start is found by brute-force self-validation: try candidate offsets for both arrays and score each candidate by how well its decoded values fall within their own declared [min, max]. See ALGORITHM.md-equivalent notes in rvsc.py/build_web.py for why RANGE-WEIGHTED scoring (not raw match count, and not a fixed tie-break tolerance window) was chosen.",
+    "algorithm": "range_weighted",
+    "info_header_search_range": 10,
+    "min_valid_record_fraction": 0.4,
+    "confidence": "high (technique); per-file result must independently satisfy min_valid_record_fraction"
+  },
+
+  "naming": {
+    "$comment": "Setting index i (i >= 1) maps to epron_names[i - 1]. Index 0 has no name in every file examined (it is an unused/sentinel record, verified by scale == 0). If a file has more records than epron_names entries, extras fall back to 'setting_<n>' - names are never invented.",
+    "confidence": "high",
+    "epron_names": [
+      "EPROM_FlagsWord0", "EPROM_FlagsWord1", "EPROM_UBatAbs", "EPROM_UBatFloat",
+      "EPROM_IBatBulk", "EPROM_UInvSetpoint", "EPROM_IMainsLimit", "EPROM_EqualiseQuarters",
+      "EPROM_FloatDays", "EPROM_AbsorptionHours", "EPROM_ChargeCharacteristic", "EPROM_UBat2Low",
+      "EPROM_UBat2LowMargin", "EPROM_NrOfSlaves", "EPROM_SpecialThreePhase", "EPROM_vsUsage",
+      "EPROM_vsonIInvHigh", "EPROM_vsonUBatHigh", "EPROM_vsonUBatLow", "EPROM_vstonIInvHigh",
+      "EPROM_vstonUBatHigh", "EPROM_vstonUBatLow", "EPROM_vstonNotCharging", "EPROM_vstonFanOn",
+      "EPROM_vstonTemperatureAlarm", "EPROM_vstonLowBatteryAlarm", "EPROM_vstonOverloadAlarm",
+      "EPROM_vstonUBatRippleAlarm", "EPROM_vsoffIInvLow", "EPROM_vsoffUBatHigh",
+      "EPROM_vsoffUBatLow", "EPROM_vstoffIInvLow", "EPROM_vstoffUBatHigh", "EPROM_vstoffUBatLow",
+      "EPROM_vstoffCharging", "EPROM_vstoffFanOff", "EPROM_vstoffChargeBulkFinished",
+      "EPROM_vstoffNoVSOnCondition", "EPROM_vstoffNoACInput", "EPROM_vstoffTemperatureAlarm",
+      "EPROM_vstoffLowBatteryAlarm", "EPROM_vstoffOverloadAlarm", "EPROM_vstoffUBatRippleAlarm",
+      "EPROM_vsMinimumOnTime", "EPROM_UMains2LowForFine", "EPROM_UMains2LowForFineHysterese",
+      "EPROM_UMains2High", "EPROM_UMains2HighHysterese", "EPROM_AssistBoostFactor",
+      "EPROM_IMainsLimitAC1", "EPROM_IInv2AES", "EPROM_IInvAESHysterese", "EPROM_vs2onILoadHigh",
+      "EPROM_vs2tonILoadHigh", "EPROM_vs2onUBatLow", "EPROM_vs2tonUBatLow",
+      "EPROM_vs2offILoadLow", "EPROM_vs2toffILoadLow", "EPROM_vs2offUBat", "EPROM_vs2toffUBat",
+      "EPROM_FlagsWord2", "EPROM_FlagsWord3", "EPROM_vsInverterPeriodTime",
+      "EPROM_UBatLowPreAlarmOffset", "EPROM_BatteryCapacity",
+      "EPROM_ChargePercentageResetValueForBatteryMonitor", "EPROM_fsUBatStart",
+      "EPROM_fsUBatStartDelay", "EPROM_fsUBatStop", "EPROM_fsUBatStopDelay",
+      "EPROM_vs2StartOnSOC", "EPROM_vllTempCompensation", "EPROM_ChargeEfficiency",
+      "EPROM_IInvLimitDuringAssist", "EPROM_AbsToFloatSOCReset", "EPROM_IBatForStopAbsorption",
+      "EPROM_InvertRedundancy", "EPROM_ExpectedPresenceFlags0", "EPROM_ExpectedPresenceFlags2",
+      "EPROM_RelativePhaseInfo", "EPROM_MyShortID", "EPROM_GridCode", "EPROM_PermanentFlags0",
+      "EPROM_SOCStopInvert", "EPROM_SOCStartInvert", "EPROM_InfoID0", "EPROM_TBatStopCharge",
+      "EPROM_TempCompensationSlope", "EPROM_UBatDontCharge", "EPROM_CurrentSensorFactor",
+      "EPROM_NotDefinedYet37", "EPROM_NotDefinedYet36", "EPROM_NotDefinedYet35",
+      "EPROM_NotDefinedYet34", "EPROM_NotDefinedYet33", "EPROM_NotDefinedYet32",
+      "EPROM_NotDefinedYet31", "EPROM_NotDefinedYet30", "EPROM_NotDefinedYet29",
+      "EPROM_NotDefinedYet28", "EPROM_NotDefinedYet27", "EPROM_NotDefinedYet26",
+      "EPROM_NotDefinedYet25", "EPROM_NotDefinedYet24", "EPROM_NotDefinedYet23",
+      "EPROM_NotDefinedYet22", "EPROM_NotDefinedYet21", "EPROM_NotDefinedYet20",
+      "EPROM_NotDefinedYet19", "EPROM_NotDefinedYet18", "EPROM_NotDefinedYet17",
+      "EPROM_NotDefinedYet16", "EPROM_NotDefinedYet15", "EPROM_NotDefinedYet14",
+      "EPROM_NotDefinedYet13", "EPROM_NotDefinedYet12", "EPROM_NotDefinedYet11",
+      "EPROM_NotDefinedYet10", "EPROM_NotDefinedYet9", "EPROM_NotDefinedYet8",
+      "EPROM_NotDefinedYet7", "EPROM_NotDefinedYet6", "EPROM_NotDefinedYet5",
+      "EPROM_NotDefinedYet4", "EPROM_NotDefinedYet3", "EPROM_NotDefinedYet2",
+      "EPROM_NotDefinedYet1", "EPROM_NotDefinedYet0", "EPROM_GridSettingsValidCheckerA",
+      "EPROM_GridSettingsInt0", "EPROM_GridSettingsInt1", "EPROM_GridSettingsInt2",
+      "EPROM_GridSettingsInt3", "EPROM_GridSettingsInt4", "EPROM_GridSettingsInt5",
+      "EPROM_GridSettingsInt6", "EPROM_GridSettingsInt7", "EPROM_GridSettingsInt8",
+      "EPROM_GridSettingsInt9", "EPROM_GridSettingsInt10", "EPROM_GridSettingsInt11",
+      "EPROM_GridSettingsInt12", "EPROM_GridSettingsInt13", "EPROM_GridSettingsInt14",
+      "EPROM_GridSettingsInt15", "EPROM_GridSettingsInt16", "EPROM_GridSettingsInt17",
+      "EPROM_GridSettingsInt18", "EPROM_GridSettingsInt19", "EPROM_GridSettingsInt20",
+      "EPROM_GridSettingsInt21", "EPROM_GridSettingsInt22", "EPROM_GridSettingsInt23",
+      "EPROM_GridSettingsInt24", "EPROM_GridSettingsInt25", "EPROM_GridSettingsInt26",
+      "EPROM_GridSettingsInt27", "EPROM_GridSettingsInt28", "EPROM_GridSettingsInt29",
+      "EPROM_GridSettingsInt30", "EPROM_GridSettingsInt31", "EPROM_GridSettingsInt32",
+      "EPROM_GridSettingsInt33", "EPROM_GridSettingsInt34", "EPROM_GridSettingsInt35",
+      "EPROM_GridSettingsInt36", "EPROM_GridSettingsInt37", "EPROM_GridSettingsInt38",
+      "EPROM_GridSettingsInt39", "EPROM_GridSettingsInt40", "EPROM_GridSettingsInt41",
+      "EPROM_GridSettingsInt42", "EPROM_GridSettingsInt43", "EPROM_GridSettingsInt44",
+      "EPROM_GridSettingsInt45", "EPROM_GridSettingsInt46", "EPROM_GridSettingsInt47",
+      "EPROM_GridSettingsInt48", "EPROM_GridSettingsInt49", "EPROM_GridSettingsInt50",
+      "EPROM_GridSettingsInt51", "EPROM_GridSettingsInt52", "EPROM_GridSettingsInt53",
+      "EPROM_GridSettingsInt54", "EPROM_GridSettingsInt55", "EPROM_GridSettingsInt56",
+      "EPROM_GridSettingsInt57", "EPROM_GridSettingsInt58", "EPROM_GridSettingsInt59",
+      "EPROM_GridSettingsInt60", "EPROM_GeneralGridSettingsInt",
+      "EPROM_GridSettingsValidCheckerB"
+    ]
+  },
+
+  "flags": {
+    "$comment": "Each entry names the setting (by EPROM_* name, resolved through 'naming' above at load time - not by a fixed absolute file offset, since that offset moves with alignment) plus a bit position and a human label. LOWER (medium) confidence than the numeric settings table: bit meanings were resolved via VEConfigure's own UI form definitions, not re-derived from each file's own self-describing min/max the way numeric settings are.",
+    "confidence": "medium",
+    "items": [
+      { "id": "EBIT_DisableCharge", "setting_name": "EPROM_FlagsWord0", "bit": 6, "label": "Disable charge" },
+      { "id": "EBIT_EnableReducedFloat", "setting_name": "EPROM_FlagsWord0", "bit": 11, "label": "Storage mode (reduced float)" },
+      { "id": "EBIT_WeakACInput", "setting_name": "EPROM_FlagsWord0", "bit": 14, "label": "Weak AC input" },
+      { "id": "EBIT_LithiumBattery", "setting_name": "EPROM_FlagsWord2", "bit": 4, "label": "Lithium battery" }
+    ]
+  },
+
+  "enums": {
+    "$comment": "Raw integer value -> human label, keyed by EPROM_* setting name. Confidence matches the numeric settings table (high) since the enum values themselves are the same self-describing raw field, but the specific label wording is cross-referenced against VEConfigure's own UI, so it is reported at medium confidence like flags.",
+    "confidence": "medium",
+    "items": {
+      "EPROM_ChargeCharacteristic": { "1": "Fixed", "2": "Adaptive", "3": "Adaptive+BatterySafe" }
+    }
+  }
+}
