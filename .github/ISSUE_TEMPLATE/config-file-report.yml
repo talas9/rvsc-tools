@@ -1,0 +1,83 @@
+name: Config file report (other hardware)
+description: Report whether rvsc-tools correctly parses a .rvsc file from hardware other than the one it's verified against.
+title: "[report]: "
+labels: ["hardware-coverage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping widen hardware coverage. See CONTRIBUTING.md for the
+        full "Help widen hardware coverage" instructions.
+
+        **Do not attach your `.rvsc` file to this issue.** It contains your
+        device's serial number and site-specific configuration. This form only
+        needs the summary information below, not the file itself.
+
+  - type: input
+    id: device-model
+    attributes:
+      label: Device model
+      description: e.g. MultiPlus 24/1200/25-16, Quattro 48/5000/70-100/100, etc.
+      placeholder: MultiPlus 24/1200/25-16
+    validations:
+      required: true
+
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Firmware version
+      description: As shown in VEConfigure or VictronConnect/VRM for this device.
+      placeholder: "2667558"
+    validations:
+      required: true
+
+  - type: input
+    id: veconfigure-version
+    attributes:
+      label: VEConfigure version
+      placeholder: "1.33"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: did-parse
+    attributes:
+      label: Did the file parse?
+      description: Did `python3 rvsc.py show your-file.rvsc` (or the web viewer) complete without errors?
+      options:
+        - "Yes, parsed cleanly"
+        - "Parsed, but with warnings/low alignment score"
+        - "No, it failed / raised an error"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: values-matched
+    attributes:
+      label: Did decoded values match VEConfigure?
+      description: Comparing the decoded output against what VEConfigure shows for the same file.
+      options:
+        - "Yes, all values I checked matched"
+        - "Mostly matched, some differences"
+        - "No, values did not match"
+        - "Did not compare"
+    validations:
+      required: true
+
+  - type: textarea
+    id: fields-differed
+    attributes:
+      label: Which fields differed (if any)?
+      description: List the setting/field names and what VEConfigure showed vs. what rvsc-tools decoded. Do not include serial numbers or values that identify your site.
+      placeholder: |
+        e.g. "Charge current limit" - VEConfigure showed 25A, rvsc-tools showed 24A
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-notes
+    attributes:
+      label: Additional notes
+      description: Anything else useful - error output, unusual sections, etc. Remember not to paste raw .rvsc contents or serial numbers.
+    validations:
+      required: false

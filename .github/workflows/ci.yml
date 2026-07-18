@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run unit tests
+        run: python -m unittest discover tests -v
+
+      - name: Staleness gate (docs/index.html vs core/settings.json)
+        run: |
+          if [ -f tools/build_web.py ]; then
+            python tools/build_web.py --check
+          else
+            echo "tools/build_web.py not present yet - skipping staleness gate"
+          fi
+
+      - name: Safety scan - device serial pattern
+        run: |
+          if grep -rEn "HQ[0-9]{4}[A-Z0-9]{5}" --exclude-dir=.git .; then
+            echo "::error::Possible device serial number found in repository"
+            exit 1
+          fi
+
+      - name: Safety scan - committed .rvsc files
+        run: |
+          extra_rvsc=$(find . -name '*.rvsc' -not -path './.git/*' -not -path './tests/fixture.rvsc' -not -path './tests/fixture.rvsc/*')
+          if [ -n "$extra_rvsc" ]; then
+            echo "::error::Unexpected .rvsc file(s) committed:"
+            echo "$extra_rvsc"
+            exit 1
+          fi
+
+      - name: Safety scan - credential-shaped hex strings
+        run: |
+          if grep -rEn --exclude-dir=.git "[0-9a-fA-F]{64}" .; then
+            echo "::error::Possible credential (64-character hex string) found in repository"
+            exit 1
+          fi
+
+      - name: Compile check
+        run: python -m compileall -q .

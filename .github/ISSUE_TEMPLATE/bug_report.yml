@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a bug in the CLI or web viewer.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please check CONTRIBUTING.md: do not attach a real
+        `.rvsc` file or include a device serial number anywhere in this
+        report.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command you ran (for the CLI) or the actions you took (for the web viewer). Do not include the contents of a real .rvsc file.
+      placeholder: |
+        1. python3 rvsc.py show <redacted>.rvsc
+        2. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: CLI or web viewer?
+      options:
+        - CLI (rvsc.py)
+        - Web viewer (docs/index.html)
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: browser-os
+    attributes:
+      label: Browser / OS
+      description: Relevant for the web viewer, or OS alone for the CLI.
+      placeholder: e.g. Chrome 126 on macOS 15, or Ubuntu 24.04
+    validations:
+      required: false
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Relevant for the CLI. Output of `python3 --version`.
+      placeholder: "Python 3.12.4"
+    validations:
+      required: false
