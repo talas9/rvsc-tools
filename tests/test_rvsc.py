@@ -49,30 +49,44 @@ def build_container(sections):
 
 # Synthetic BareSettingInfo records: (scale, offset, default, min, max).
 # idx0 is a degenerate sentinel (scale == 0), matching the naming rule that
-# index 0 is always unnamed. idx1..idx5 are non-degenerate and deliberately
-# cover both a negative scale (divide) and a positive scale (multiply), plus
-# a nonzero offset, so scale-decoding is exercised both ways by one fixture.
+# index 0 is always unnamed. Index position in this table is meaningful: cfg
+# (loaded from the real core/settings.json) resolves setting NAMES purely by
+# position via naming.epron_names, regardless of this being a synthetic file
+# - epron_names[0] and [1] are "EPROM_FlagsWord0"/"EPROM_FlagsWord1", so
+# idx1/idx2 here ARE resolved as flags words by rvsc.py, same as in a real
+# file. idx1/idx2 are therefore deliberately built as bitfield-shaped records
+# (narrow declared [min, max], but a raw value far outside it - simulating a
+# flags word with high bits set, exactly like EPROM_FlagsWord0 in real
+# reference files) to exercise the flags-word range-check exclusion. idx3..7
+# are non-degenerate, non-flags-word records that deliberately cover both a
+# negative scale (divide) and a positive scale (multiply), plus a nonzero
+# offset, so scale-decoding is exercised both ways by one fixture.
 FIXTURE_INFO_RECORDS = [
-    (0, 0, 0, 0, 0),               # idx0: sentinel
-    (-100, 0, 2500, 2000, 3000),   # idx1: negative scale (divide) -> 25.00
-    (10, 0, 5, 1, 10),             # idx2: positive scale (multiply) -> 50
-    (1, 0, 1, 1, 3),                # idx3: scale 1, small enum-shaped range
-    (-10, -5, 100, 50, 200),        # idx4: negative scale WITH a nonzero offset -> 9.5
-    (1, 0, 25, 0, 25),               # idx5: scale 1, at its own max
+    (0, 0, 0, 0, 0),                # idx0: sentinel
+    (1, 0, 0, 0, 100),               # idx1: EPROM_FlagsWord0 (bitfield, narrow declared range)
+    (1, 0, 0, 0, 100),               # idx2: EPROM_FlagsWord1 (bitfield, narrow declared range)
+    (-100, 0, 2500, 2000, 3000),     # idx3: EPROM_UBatAbs - negative scale (divide) -> 25.00
+    (10, 0, 5, 1, 10),               # idx4: EPROM_UBatFloat - positive scale (multiply) -> 50
+    (1, 0, 1, 1, 3),                  # idx5: EPROM_IBatBulk - scale 1, small enum-shaped range
+    (-10, -5, 100, 50, 200),          # idx6: EPROM_UInvSetpoint - negative scale + nonzero offset -> 9.5
+    (1, 0, 25, 0, 25),                 # idx7: EPROM_IMainsLimit - scale 1, at its own max
 ]
 FIXTURE_INFO_BASE_HEADER = b"\x00"  # 1 stray byte before record 0 (base == 1)
 
 # BareSettingData: 3 leading "junk" records with no BareSettingInfo counterpart
 # (this is what forces the aligner to find a negative k, exactly like the two
 # real reference files, where the data array is a window into a larger info
-# table), followed by one raw value per info record above (set to each
-# record's own declared default, so every non-degenerate record is in-range).
+# table), followed by one raw value per info record above. idx1/idx2 (the two
+# flags words) are set FAR outside their own declared [0, 100] range on
+# purpose - if the aligner's range check did not exclude flags words, this
+# fixture would fail to find a plausible alignment at all. Every other
+# non-degenerate record is set to its own declared default, i.e. in-range.
 FIXTURE_JUNK_DATA = [9999, 1234, 42]
-FIXTURE_REAL_DATA = [7, 2500, 5, 2, 100, 25]
+FIXTURE_REAL_DATA = [7, 50000, 60000, 2500, 5, 2, 100, 25]
 
 
 def build_fixture_bytes(real_data=None):
-    """Build one synthetic .rvsc file. Pass a different `real_data` (6 raw u16
+    """Build one synthetic .rvsc file. Pass a different `real_data` (8 raw u16
     values, one per FIXTURE_INFO_RECORDS entry) to get a second, DIFFERING
     synthetic file for diff tests - still fully synthetic, still no serial."""
     real_data = FIXTURE_REAL_DATA if real_data is None else real_data
@@ -133,8 +147,13 @@ class AlignmentSelectionTests(unittest.TestCase):
         a = meta["alignment"]
         self.assertEqual(a["base"], 1)
         self.assertEqual(a["k"], -3)
-        # All 5 non-degenerate records (idx1..idx5) were set to their own
-        # declared default, i.e. always in-range.
+        # 5 non-degenerate, non-flags-word records (idx3..idx7) were set to
+        # their own declared default, i.e. always in-range. idx1/idx2 are
+        # flags words with raw values far outside their declared [0, 100] -
+        # if they were NOT excluded from scoring, this fixture would either
+        # fail to find a plausible alignment at all, or valid_records/in_range
+        # would be 7, not 5. See FlagsWordExclusionTests below for a more
+        # direct assertion of the exclusion itself.
         self.assertEqual(a["valid_records"], 5)
         self.assertEqual(a["in_range"], 5)
 
@@ -144,12 +163,63 @@ class AlignmentSelectionTests(unittest.TestCase):
         # 3 leading junk data records have no BareSettingInfo counterpart and
         # must not appear as settings at all.
         indices = [s.index for s in settings]
-        self.assertEqual(indices, [0, 1, 2, 3, 4, 5])
+        self.assertEqual(indices, [0, 1, 2, 3, 4, 5, 6, 7])
 
     def test_sentinel_index_zero_is_unnamed(self):
         cfg = rvsc.load_config()
         settings, meta = rvsc.load_settings(str(FIXTURE_PATH), cfg)
         self.assertEqual(settings[0].name, "setting_0")
+
+
+class FlagsWordExclusionTests(unittest.TestCase):
+    """EPROM_FlagsWord0..3 are bitfields, not scalars: individual bits are
+    meaningful (see cfg.flags), but the raw word as a whole has no linear
+    relationship to a declared [min, max], so range-checking it is a category
+    error - it was found breaking the alignment self-check's in-range count
+    on real reference files (index 1 / EPROM_FlagsWord0, data offset 0x1049)
+    even though every documented flag bit inside it decoded correctly."""
+
+    def test_is_flags_word_matches_by_name(self):
+        cfg = rvsc.load_config()
+        # idx1/idx2 in the fixture resolve (via the real naming table) to
+        # EPROM_FlagsWord0/EPROM_FlagsWord1.
+        self.assertTrue(cfg.is_flags_word(1))
+        self.assertTrue(cfg.is_flags_word(2))
+        # A plain scalar setting must not be misidentified as a flags word.
+        self.assertFalse(cfg.is_flags_word(3))
+
+    def test_flags_word_excluded_from_alignment_scoring(self):
+        cfg = rvsc.load_config()
+        settings, meta = rvsc.load_settings(str(FIXTURE_PATH), cfg)
+        a = meta["alignment"]
+        # idx1/idx2 (EPROM_FlagsWord0/1) are deliberately out of their own
+        # declared [0, 100] range in the fixture data. If the range check
+        # were not excluding flags words, they could only ever be counted as
+        # "valid but out of range" (pulling in_range below valid_records) or,
+        # if some other candidate alignment happened to avoid them, change
+        # which offset wins entirely. Neither happens: valid_records and
+        # in_range both come out to exactly the 5 real scalar records.
+        self.assertEqual(a["valid_records"], 5)
+        self.assertEqual(a["in_range"], 5)
+
+    def test_flags_word_setting_in_range_is_none(self):
+        cfg = rvsc.load_config()
+        settings, meta = rvsc.load_settings(str(FIXTURE_PATH), cfg)
+        by_index = {s.index: s for s in settings}
+        # idx1/idx2 are flags words: in_range is deliberately N/A (None), not
+        # False, so a bitfield is never displayed/counted as "out of range"
+        # the way a genuinely out-of-spec scalar setting would be.
+        self.assertIsNone(by_index[1].in_range)
+        self.assertIsNone(by_index[2].in_range)
+        self.assertEqual(by_index[1].name, "EPROM_FlagsWord0")
+        self.assertEqual(by_index[2].name, "EPROM_FlagsWord1")
+        # Their raw values are preserved untouched despite being numerically
+        # outside the declared range - this tool never mutates or hides raw
+        # data, it only stops mis-scoring it as a scalar.
+        self.assertEqual(by_index[1].raw, 50000)
+        self.assertEqual(by_index[2].raw, 60000)
+        # A real scalar setting still gets a normal True/False in_range.
+        self.assertTrue(by_index[3].in_range)
 
 
 class ScaleDecodingTests(unittest.TestCase):
@@ -172,9 +242,9 @@ class ScaleDecodingTests(unittest.TestCase):
         cfg = rvsc.load_config()
         settings, meta = rvsc.load_settings(str(FIXTURE_PATH), cfg)
         by_index = {s.index: s for s in settings}
-        self.assertEqual(by_index[1].value, 25.0)   # negative scale
-        self.assertEqual(by_index[2].value, 50)     # positive scale
-        self.assertEqual(by_index[4].value, 9.5)    # negative scale + offset
+        self.assertEqual(by_index[3].value, 25.0)   # negative scale
+        self.assertEqual(by_index[4].value, 50)     # positive scale
+        self.assertEqual(by_index[6].value, 9.5)    # negative scale + offset
 
 
 class FlagBitDecodingTests(unittest.TestCase):
@@ -213,8 +283,8 @@ class DiffTests(unittest.TestCase):
     def test_diff_between_two_synthetic_files(self):
         cfg = rvsc.load_config()
         changed_data = list(FIXTURE_REAL_DATA)
-        changed_data[1] = 2800   # idx1: 25.00 -> 28.00
-        changed_data[5] = 18     # idx5: 25 -> 18
+        changed_data[3] = 2800   # idx3 (UBatAbs): 25.00 -> 28.00
+        changed_data[7] = 18     # idx7 (IMainsLimit): 25 -> 18
 
         with tempfile.TemporaryDirectory() as tmp:
             path_a = Path(tmp) / "a.rvsc"
@@ -231,9 +301,9 @@ class DiffTests(unittest.TestCase):
             idx for idx in by_index_a
             if idx in by_index_b and by_index_a[idx].raw != by_index_b[idx].raw
         )
-        self.assertEqual(diffs, [1, 5])
-        self.assertEqual(by_index_a[1].value, 25.0)
-        self.assertEqual(by_index_b[1].value, 28.0)
+        self.assertEqual(diffs, [3, 7])
+        self.assertEqual(by_index_a[3].value, 25.0)
+        self.assertEqual(by_index_b[3].value, 28.0)
 
     def test_identical_files_have_no_diff(self):
         cfg = rvsc.load_config()

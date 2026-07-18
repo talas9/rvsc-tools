@@ -34,6 +34,7 @@ algorithm used by docs/index.html (kept identical on purpose - see tools/build_w
 """
 
 import json
+import os
 import struct
 import sys
 import re
@@ -85,6 +86,21 @@ class Config:
         if not table:
             return None
         return table.get(str(raw_value))
+
+    def is_flags_word(self, index):
+        """True if the setting at this index is a full FlagsWord bitfield
+        (EPROM_FlagsWord0..3), as opposed to a scalar numeric setting.
+
+        core/settings.json's naming table does not mark this explicitly (it
+        has no per-record "kind" field), so this is detected by the
+        identifier's own name prefix - the one convention that already holds
+        across every EPROM_*FlagsWord* entry in naming.epron_names. See the
+        find_alignment()/build_settings() comments for why this exclusion
+        exists: individual bits within a FlagsWord are meaningful (see
+        "flags" in core/settings.json), but the word's raw value AS A WHOLE
+        has no scalar meaning, so range-checking it against a declared
+        [min, max] is a category error, not a real out-of-range condition."""
+        return self.setting_name(index).startswith("EPROM_FlagsWord")
 
 
 def load_config(path=None):
@@ -243,6 +259,17 @@ def find_alignment(data, cfg, info_section, data_section):
                 scale, offset, mn, mx = rec["scale"], rec["offset"], rec["min"], rec["max"]
                 if scale == 0 or mx <= mn:
                     continue
+                # A FlagsWord is a bitfield, not a scalar: individual bits are
+                # meaningful (see core/settings.json "flags"), but the raw
+                # word as a whole has no linear relationship to its declared
+                # [min, max], so range-checking it here is a category error
+                # (verified: EPROM_FlagsWord0's high bits push it past its own
+                # declared max in real reference files even though every
+                # named flag bit within it decodes correctly). Exclude it from
+                # scoring the same way a degenerate (mx <= mn) record already
+                # is above - do not "fix" this back to a plain scalar check.
+                if cfg.is_flags_word(idx):
+                    continue
                 valid_records += 1
                 raw = data_raw_vals[i]
                 val = decode_value(raw, scale, offset)
@@ -271,7 +298,7 @@ def find_alignment(data, cfg, info_section, data_section):
 class Setting:
     __slots__ = ("index", "name", "raw", "value", "scale", "offset", "default_raw",
                  "default_value", "min_raw", "max_raw", "enum_label", "default_enum_label",
-                 "in_range")
+                 "in_range", "data_offset", "info_offset")
 
 
 def build_settings(data, cfg, alignment, info_section):
@@ -299,7 +326,8 @@ def build_settings(data, cfg, alignment, info_section):
         if not (0 <= idx < n_total):
             continue
 
-        raw = struct.unpack_from(cfg.data_struct_fmt, data, data_start + i * cfg.data_rec_size)[0]
+        data_off = data_start + i * cfg.data_rec_size
+        raw = struct.unpack_from(cfg.data_struct_fmt, data, data_off)[0]
         info_off = info_start + base + idx * cfg.info_rec_size
         rec = struct.unpack_from(cfg.info_struct_fmt, data, info_off)
         fields = dict(zip(cfg.info_fields, rec))
@@ -308,6 +336,8 @@ def build_settings(data, cfg, alignment, info_section):
         s.index = idx
         s.name = cfg.setting_name(idx)
         s.raw = raw
+        s.data_offset = data_off
+        s.info_offset = info_off
         s.scale = fields["scale"]
         s.offset = fields["offset"]
         s.default_raw = fields["default"]
@@ -317,7 +347,13 @@ def build_settings(data, cfg, alignment, info_section):
         s.default_value = decode_value(s.default_raw, s.scale, s.offset)
         dmn = decode_value(s.min_raw, s.scale, s.offset)
         dmx = decode_value(s.max_raw, s.scale, s.offset)
-        if s.scale != 0 and dmn is not None and dmx is not None and s.max_raw > s.min_raw:
+        if cfg.is_flags_word(idx):
+            # Bitfield, not a scalar - see cfg.is_flags_word()/find_alignment()
+            # comments. Range-checking it against its declared [min, max]
+            # would be a category error, so it is deliberately left N/A
+            # (None) here rather than scored True/False like a real scalar.
+            s.in_range = None
+        elif s.scale != 0 and dmn is not None and dmx is not None and s.max_raw > s.min_raw:
             lo, hi = (dmn, dmx) if dmn <= dmx else (dmx, dmn)
             s.in_range = s.value is not None and lo <= s.value <= hi
         else:
@@ -425,18 +461,266 @@ def print_header(meta):
     print()
 
 
-def cmd_show(args):
-    if not args:
-        print("usage: rvsc.py show <file> [--changed-only]", file=sys.stderr)
-        return 2
-    path = args[0]
-    changed_only = "--changed-only" in args[1:]
+# ---------------------------------------------------------------------------
+# Colour (TTY-only; NO_COLOR opts out - https://no-color.org)
+# ---------------------------------------------------------------------------
 
-    cfg = load_config()
-    settings, meta = load_settings(path, cfg)
-    print_header(meta)
+_ANSI_RESET = "\033[0m"
+_ANSI_BOLD = "\033[1m"
+_ANSI_DIM = "\033[2m"
+_ANSI_MARK = "\033[1;33m"  # bold yellow, for the "differs from default" marker
 
-    print(f"{'idx':>4} {'name':35s} {'raw':>7} {'value':>12} {'default':>12} {'min':>7} {'max':>7}  ")
+
+def _color_enabled():
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _paint(s, code, enabled):
+    return f"{code}{s}{_ANSI_RESET}" if enabled else s
+
+
+def bold(s, enabled):
+    return _paint(s, _ANSI_BOLD, enabled)
+
+
+def dim(s, enabled):
+    return _paint(s, _ANSI_DIM, enabled)
+
+
+def mark(s, enabled):
+    return _paint(s, _ANSI_MARK, enabled)
+
+
+# ---------------------------------------------------------------------------
+# VEConfigure UI mapping (tab / group / human label) for the Simple view
+#
+# core/settings.json is the source of truth for EPROM_*/EBIT_* identifiers,
+# but it carries no UI layout information. The tab/group/label layout lives in
+# /Users/talas9/rvsc-ui-spec.json (observed from VEConfigure 3 itself), whose
+# own "mapping_status" section marks which of those UI fields are CONFIRMED to
+# correspond to a specific setting index/flag bit versus included for layout
+# reference only. /Users/talas9/rvsc-mapping.json (a ready-made index->label
+# table) does not exist at the time of writing, so this table below is that
+# mapping, hand-built from the CONFIRMED entries only:
+#   confirmed_fields: Absorption voltage, Float voltage, Charge current,
+#                      AC input current limit, Charge curve, DC input low shut-down
+#   confirmed_flags:  DisableCharge, EnableReducedFloat, WeakACInput, LithiumBattery
+# Every other EPROM_* setting in a file has no confirmed VEConfigure label yet
+# and is listed under "Unmapped" by print_simple() instead of being guessed.
+#
+# EBIT_DisableCharge is a special case: VEConfigure's own checkbox is labelled
+# "Enable charger" and is CHECKED (Enabled) when the underlying bit is CLEAR -
+# the flag name and the UI label are inverted from each other. Getting this
+# backwards would print a working charger as "Disabled", which is worse than
+# not showing it at all, so it is marked "inverted" explicitly below rather
+# than left to be inferred from the flag id's wording.
+# ---------------------------------------------------------------------------
+
+TAB_ORDER = ["General", "Grid", "Inverter", "Charger", "Virtual switch", "Assistants", "Advanced"]
+
+MASTER_MAPPING = [
+    {"identifier": "EPROM_IMainsLimit", "tab": "General", "group": "Shore limit",
+     "label": "AC input current limit", "unit": "A", "kind": "number"},
+
+    {"identifier": "EPROM_UBat2Low", "tab": "Inverter", "group": "General",
+     "label": "DC input low shut-down", "unit": "V", "kind": "number"},
+
+    {"flag_id": "EBIT_DisableCharge", "tab": "Charger", "group": "Charger enable",
+     "label": "Enable charger", "inverted": True},
+    {"flag_id": "EBIT_WeakACInput", "tab": "Charger", "group": "Charger enable",
+     "label": "Weak AC input", "inverted": False},
+    {"flag_id": "EBIT_LithiumBattery", "tab": "Charger", "group": "Charger enable",
+     "label": "Lithium batteries", "inverted": False},
+
+    {"identifier": "EPROM_ChargeCharacteristic", "tab": "Charger", "group": "Charge curve",
+     "label": "Charge curve", "unit": None, "kind": "enum"},
+    {"identifier": "EPROM_UBatAbs", "tab": "Charger", "group": "Charge curve",
+     "label": "Absorption voltage", "unit": "V", "kind": "number"},
+    {"identifier": "EPROM_UBatFloat", "tab": "Charger", "group": "Charge curve",
+     "label": "Float voltage", "unit": "V", "kind": "number"},
+    {"identifier": "EPROM_IBatBulk", "tab": "Charger", "group": "Charge curve",
+     "label": "Charge current", "unit": "A", "kind": "number"},
+
+    {"flag_id": "EBIT_EnableReducedFloat", "tab": "Charger", "group": "Storage / Equalization",
+     "label": "Storage mode", "inverted": False},
+]
+
+LABEL_WIDTH = 34
+
+
+def is_unused_slot(s):
+    """Heuristic for an obvious spare/padding record - hidden by default,
+    shown with --show-unused. Three signals, any one of which qualifies:
+
+      1. scale == 0: the record has no linear numeric meaning at all
+         (bitfield/reserved slot - see decode_value()).
+      2. max_raw <= min_raw: a degenerate declared range.
+      3. A fully unconstrained [0, 0xFFFF] declared range currently sitting
+         at/near the 0xFFFF sentinel.
+
+    Signal 3 deliberately does NOT fire on raw==0xFFFF alone: several real,
+    meaningful settings (the Virtual switch "-1 seconds means disabled"
+    duration fields) legitimately use 0xFFFF/-1 as a value within a much
+    narrower declared range, and hiding those would suppress real data. Only
+    the combination of "wide-open range" AND "at the sentinel" is a reliable
+    spare/padding signal (verified against a real reference file: this
+    combination matches GridSettingsInt0..60-style padding, not any VS
+    duration field, which all have narrow max values in that same file).
+    """
+    if s.scale == 0:
+        return True
+    if s.max_raw <= s.min_raw:
+        return True
+    if s.min_raw == 0 and s.max_raw == 0xFFFF and s.raw is not None and s.raw >= 0xFFF0:
+        return True
+    return False
+
+
+def _format_mapped_row(entry, by_name, by_flag_id, mapped_names, color):
+    """Return ([display lines], changed) for one MASTER_MAPPING entry, or
+    None if the setting/flag it refers to isn't present in this file."""
+    label = entry["label"]
+
+    if "identifier" in entry:
+        s = by_name.get(entry["identifier"])
+        if s is None:
+            return None
+        mapped_names.add(entry["identifier"])
+        changed = (s.raw != s.default_raw)
+        if entry["kind"] == "enum":
+            value_str = s.enum_label or fmt_value(s.value)
+            default_str = s.default_enum_label or fmt_value(s.default_value)
+        else:
+            unit_suffix = f" {entry['unit']}" if entry.get("unit") else ""
+            value_str = fmt_value(s.value) + unit_suffix
+            default_str = fmt_value(s.default_value) + unit_suffix
+    else:
+        f = by_flag_id.get(entry["flag_id"])
+        if f is None:
+            return None
+        source = f["setting"]
+        on = f["on"]
+        default_on = bool((source.default_raw >> f["bit"]) & 1)
+        if entry.get("inverted"):
+            on = not on
+            default_on = not default_on
+        value_str = "Enabled" if on else "Disabled"
+        default_str = "Enabled" if default_on else "Disabled"
+        changed = (on != default_on)
+
+    base = f"    {label:<{LABEL_WIDTH}s}{value_str:>12s}"
+    if changed:
+        lines = [
+            base + "  " + mark("*", color),
+            dim(f"    {'':<{LABEL_WIDTH}s}    default: {default_str}", color),
+        ]
+    else:
+        lines = [base]
+    return lines, changed
+
+
+def print_simple(settings, cfg, changed_only, show_unused, color):
+    """VEConfigure-style Simple view: settings grouped under their own
+    VEConfigure tab and group headings, showing human labels and interpreted
+    (enum/bool/unit) values - see the MASTER_MAPPING comment above."""
+    by_name = {s.name: s for s in settings}
+    flags = decode_flags(settings, cfg)
+    by_flag_id = {f["id"]: f for f in flags}
+    flag_by_id_cfg = {f["id"]: f for f in cfg.flags}
+    flag_source_names = {
+        flag_by_id_cfg[e["flag_id"]]["setting_name"]
+        for e in MASTER_MAPPING if "flag_id" in e and e["flag_id"] in flag_by_id_cfg
+    }
+
+    mapped_names = set()
+    any_output = False
+
+    for tab in TAB_ORDER:
+        tab_entries = [e for e in MASTER_MAPPING if e["tab"] == tab]
+        if not tab_entries:
+            continue
+
+        groups = []
+        for e in tab_entries:
+            if not groups or groups[-1][0] != e["group"]:
+                groups.append((e["group"], []))
+            groups[-1][1].append(e)
+
+        tab_groups = []
+        for group_name, entries in groups:
+            group_lines = []
+            for e in entries:
+                row = _format_mapped_row(e, by_name, by_flag_id, mapped_names, color)
+                if row is None:
+                    continue
+                lines, changed = row
+                if changed_only and not changed:
+                    continue
+                group_lines.extend(lines)
+            if group_lines:
+                tab_groups.append((group_name, group_lines))
+
+        if not tab_groups:
+            continue
+        any_output = True
+        print(bold(tab, color))
+        print(bold("-" * len(tab), color))
+        for group_name, group_lines in tab_groups:
+            print(f"  {group_name}")
+            for line in group_lines:
+                print(line)
+            print()
+
+    unused_count = 0
+    unmapped_lines = []
+    for s in settings:
+        if s.name in mapped_names or s.name in flag_source_names:
+            continue
+        if is_unused_slot(s):
+            unused_count += 1
+            if not show_unused:
+                continue
+        changed = (s.raw != s.default_raw)
+        if changed_only and not changed:
+            continue
+        value_str = fmt_value(s.value)
+        if s.enum_label:
+            value_str = f"{value_str} ({s.enum_label})"
+        line = f"    {s.name:<{LABEL_WIDTH}s}{value_str:>12s}"
+        if changed:
+            line += "  " + mark("*", color)
+        unmapped_lines.append(line)
+
+    if unmapped_lines:
+        any_output = True
+        heading = "Unmapped (no confirmed VEConfigure label)"
+        print(bold(heading, color))
+        print(bold("-" * len(heading), color))
+        for line in unmapped_lines:
+            print(line)
+        print()
+
+    if unused_count and not show_unused:
+        any_output = True
+        print(dim(f"{unused_count} unused slot(s) hidden (use --show-unused to show)", color))
+
+    if not any_output:
+        print("(no settings differ from default)" if changed_only else "(no settings to show)")
+
+
+def print_advanced_table(settings, changed_only):
+    """The previous default: a technical table keyed by EPROM_*/EBIT_*
+    identifiers, with index, raw value, decoded value, default, min/max, and
+    the setting's byte offset in BareSettingData."""
+    print(
+        f"{'idx':>4} {'name':35s} {'raw':>7} {'value':>12} {'default':>12} "
+        f"{'min':>7} {'max':>7} {'offset':>8}  "
+    )
     for s in settings:
         changed = (s.raw != s.default_raw)
         if changed_only and not changed:
@@ -447,8 +731,42 @@ def cmd_show(args):
             value_str = f"{value_str} ({s.enum_label})"
         print(
             f"{s.index:>4} {s.name:35s} {s.raw:>7} {value_str:>12} "
-            f"{fmt_value(s.default_value):>12} {fmt_value(s.min_raw):>7} {fmt_value(s.max_raw):>7} {marker}"
+            f"{fmt_value(s.default_value):>12} {fmt_value(s.min_raw):>7} {fmt_value(s.max_raw):>7} "
+            f"0x{s.data_offset:04x} {marker}"
         )
+
+
+SHOW_USAGE = (
+    "usage: rvsc.py show <file> [--changed-only] [--advanced|--raw] [--show-unused]\n"
+    "   or: rvsc.py <file>   (shorthand for `show <file>`)\n"
+)
+SHOW_OPTIONS = ("--changed-only", "--advanced", "--raw", "--show-unused")
+
+
+def cmd_show(args):
+    if not args:
+        print(SHOW_USAGE, file=sys.stderr, end="")
+        return 2
+    path = args[0]
+    opts = args[1:]
+    unknown = [a for a in opts if a not in SHOW_OPTIONS]
+    if unknown:
+        print(f"unknown option(s) for show: {' '.join(unknown)}", file=sys.stderr)
+        print(SHOW_USAGE, file=sys.stderr, end="")
+        return 2
+
+    changed_only = "--changed-only" in opts
+    advanced = "--advanced" in opts or "--raw" in opts
+    show_unused = "--show-unused" in opts
+
+    cfg = load_config()
+    settings, meta = load_settings(path, cfg)
+    print_header(meta)
+
+    if advanced:
+        print_advanced_table(settings, changed_only)
+    else:
+        print_simple(settings, cfg, changed_only, show_unused, _color_enabled())
     return 0
 
 
@@ -514,22 +832,67 @@ def cmd_flags(args):
     return 0
 
 
+KNOWN_COMMANDS = ("show", "diff", "flags")
+
+USAGE = """usage: rvsc.py <command> [options]
+   or: rvsc.py <file.rvsc> [options]     (shorthand for `show <file.rvsc>`)
+
+commands:
+  show <file> [options]        print a human-readable view of a .rvsc file's
+                                settings, grouped under VEConfigure's own tab
+                                and group headings (this is the default when
+                                a bare file path is given with no command).
+      --changed-only               only print settings that differ from
+                                    their factory default
+      --advanced, --raw            print the technical table instead
+                                    (identifiers, indices, file offsets,
+                                    scale, default, min/max)
+      --show-unused                also print settings normally hidden as
+                                    obvious spare/padding slots
+
+  diff <fileA> <fileB>         print only the settings that differ between
+                                two files
+
+  flags <file>                 print decoded boolean flags (raw ON/OFF; see
+                                FORMAT.md for confidence notes)
+
+Colour is used automatically when stdout is a terminal. Set NO_COLOR=1, or
+pipe/redirect the output, to disable it.
+"""
+
+
+def print_usage(stream=sys.stderr):
+    print(USAGE, file=stream, end="")
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("usage: rvsc.py <show|diff|flags> ...", file=sys.stderr)
+    argv = sys.argv[1:]
+    if not argv:
+        print_usage(sys.stderr)
         return 2
-    cmd = sys.argv[1]
-    args = sys.argv[2:]
+    if argv[0] in ("-h", "--help"):
+        print_usage(sys.stdout)
+        return 0
+
+    cmd = argv[0]
+    rest = argv[1:]
+    if cmd not in KNOWN_COMMANDS:
+        # BUG1: a bare file path in place of a subcommand is shorthand for
+        # `show <file>`, rather than a bare "unknown command" error.
+        if Path(cmd).is_file():
+            cmd = "show"
+            rest = argv
+        else:
+            print_usage(sys.stderr)
+            return 2
+
     try:
         if cmd == "show":
-            return cmd_show(args)
+            return cmd_show(rest)
         elif cmd == "diff":
-            return cmd_diff(args)
+            return cmd_diff(rest)
         elif cmd == "flags":
-            return cmd_flags(args)
-        else:
-            print(f"unknown command: {cmd}", file=sys.stderr)
-            return 2
+            return cmd_flags(rest)
     except (OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

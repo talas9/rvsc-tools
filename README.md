@@ -84,11 +84,26 @@ A companion command-line tool, `rvsc.py`, is included for local/offline and
 scripting use:
 
 ```sh
-python3 rvsc.py show <file.rvsc>                     # print all settings
-python3 rvsc.py show <file.rvsc> --changed-only       # print only settings that differ from default
-python3 rvsc.py diff <fileA.rvsc> <fileB.rvsc>        # show only settings that differ between two files
-python3 rvsc.py flags <file.rvsc>                     # print decoded boolean flags
+python3 rvsc.py <file.rvsc>                           # shorthand for `show <file.rvsc>`
+python3 rvsc.py show <file.rvsc>                       # print settings grouped by VEConfigure tab/group
+python3 rvsc.py show <file.rvsc> --changed-only         # print only settings that differ from default
+python3 rvsc.py show <file.rvsc> --advanced             # technical table: identifiers, offsets, scale, min/max
+python3 rvsc.py show <file.rvsc> --show-unused          # also print settings normally hidden as spare/padding
+python3 rvsc.py diff <fileA.rvsc> <fileB.rvsc>          # show only settings that differ between two files
+python3 rvsc.py flags <file.rvsc>                       # print decoded boolean flags
 ```
+
+The default `show` view mirrors VEConfigure's own Simple view: settings are
+grouped under VEConfigure's own tab and group headings, printed with their
+human label (never a bare `EPROM_*`/`EBIT_*` identifier) and an interpreted
+value — enums as their full option text, booleans as "Enabled"/"Disabled",
+numbers with their unit. Only settings this project has confirmed a label
+for are shown this way; everything else appears under an "Unmapped" section,
+with obvious spare/padding slots hidden by default. Values that differ from
+their factory default are marked, with the default value shown alongside in
+muted text. Colour is used automatically on a terminal; set `NO_COLOR=1`, or
+pipe the output, to disable it. `--advanced` (or `--raw`) prints the previous
+technical table instead.
 
 Run `python3 rvsc.py --help` (or `python3 rvsc.py <command> --help`) for the
 current, authoritative list of options — this README describes the common case,
@@ -167,8 +182,11 @@ Do not hand-edit `docs/index.html`'s generated data directly; edit
 
 ### Running tests
 
+The test suite is Python stdlib `unittest` — no test framework needs to be
+installed:
+
 ```sh
-python3 -m pytest tests/
+python3 -m unittest discover tests -v
 ```
 
 ## Legal / not affiliated
