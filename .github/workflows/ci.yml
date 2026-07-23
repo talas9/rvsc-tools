@@ -55,6 +55,13 @@ jobs:
             exit 1
           fi
 
+      - name: Safety scan - absolute home directory paths
+        run: |
+          if grep -rEn --exclude-dir=.git "/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+" .; then
+            echo "::error::Possible absolute home directory path found in repository"
+            exit 1
+          fi
+
       - name: Compile check
         run: python -m compileall -q .
 
